@@ -63,6 +63,23 @@ pub(crate) fn expand_vocabulary_for_languages(
     expanded
 }
 
+/// Vocabulary for APIs whose entries have no `language` field (Gladia's
+/// regional Enterprise hosts reject unknown fields): drop the language and
+/// keep the first entry of each term.
+pub(crate) fn vocabulary_without_languages(
+    entries: Vec<CustomVocabEntry>,
+) -> Vec<CustomVocabEntry> {
+    let mut seen = std::collections::HashSet::new();
+    entries
+        .into_iter()
+        .filter(|entry| seen.insert(entry.value.clone()))
+        .map(|entry| CustomVocabEntry {
+            language: None,
+            ..entry
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub async fn save_custom_vocabulary(vocabulary: Vec<CustomVocabEntry>) -> Result<(), String> {
     crate::config::save_custom_vocabulary(vocabulary)
@@ -125,5 +142,29 @@ mod tests {
         assert_eq!(vocab.len(), 1);
         assert_eq!(vocab[0].value, DEFAULT_VOCAB_TERM);
         assert_eq!(vocab[0].intensity, DEFAULT_VOCAB_TERM_INTENSITY);
+    }
+
+    fn entry(value: &str, language: Option<&str>) -> CustomVocabEntry {
+        CustomVocabEntry {
+            value: value.to_string(),
+            pronunciations: None,
+            language: language.map(str::to_string),
+            intensity: 0.5,
+        }
+    }
+
+    #[test]
+    fn vocabulary_without_languages_strips_language_and_dedupes() {
+        let entries = vec![
+            entry("gladiaflow", Some("en")),
+            entry("acme", None),
+            entry("gladiaflow", Some("fr")),
+        ];
+
+        let result = vocabulary_without_languages(entries);
+
+        assert_eq!(result, vec![entry("gladiaflow", None), entry("acme", None)]);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("language"), "{json}");
     }
 }
