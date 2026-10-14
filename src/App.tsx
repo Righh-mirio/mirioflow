@@ -136,6 +136,8 @@ export default function App() {
   const [isApiKeyLocked, setIsApiKeyLocked] = useState(false);
   const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
   const [isTestingApiKey, setIsTestingApiKey] = useState(false);
+  /** Key-check failure, shown under the API key field (not as a dictation error). */
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [configLoadPending, setConfigLoadPending] = useState(true);
   const [configLoadError, setConfigLoadError] = useState<string | null>(null);
   const [configResetConfirmationOpen, setConfigResetConfirmationOpen] =
@@ -1218,6 +1220,11 @@ export default function App() {
     }
   };
 
+  const handleChangeApiKey = (value: string) => {
+    setApiKey(value);
+    setApiKeyError(null);
+  };
+
   const handleSaveApiKey = async () => {
     if (isTestingApiKey || !apiKey.trim()) return;
 
@@ -1232,6 +1239,7 @@ export default function App() {
     }
 
     const trimmedApiKey = apiKey.trim();
+    setApiKeyError(null);
     setIsTestingApiKey(true);
     setStatus({
       phase: "transcribing",
@@ -1244,11 +1252,13 @@ export default function App() {
         apiKey: trimmedApiKey,
       });
       if (!connectionOk) {
-        setStatus({
-          phase: "error",
-          title: "Error",
-          detail: "Invalid API key. Please check and retry.",
-        });
+        const customUrl = apiBaseUrlSettings?.apiBaseUrl;
+        setApiKeyError(
+          customUrl
+            ? `Invalid API key for ${customUrl}.`
+            : "Invalid API key. Please check and retry.",
+        );
+        setStatus({ phase: "idle", title: "Ready", detail: "" });
         return;
       }
 
@@ -1264,11 +1274,8 @@ export default function App() {
       await checkAllPermissions();
     } catch (e) {
       console.error("Failed to save API key:", e);
-      setStatus({
-        phase: "error",
-        title: "Error",
-        detail: `Failed to save API key: ${e}`,
-      });
+      setApiKeyError(`Couldn't verify the API key. ${e}`);
+      setStatus({ phase: "idle", title: "Ready", detail: "" });
     } finally {
       setIsTestingApiKey(false);
     }
@@ -1928,7 +1935,8 @@ export default function App() {
               displayValue={apiKeyDisplayValue}
               isLocked={isApiKeyLocked}
               isTesting={isTestingApiKey}
-              onChangeKey={setApiKey}
+              onChangeKey={handleChangeApiKey}
+              error={apiKeyError}
               onSave={handleSaveApiKey}
               apiBaseUrlSettings={apiBaseUrlSettings}
               onSaveApiBaseUrl={handleSaveApiBaseUrl}
@@ -1947,7 +1955,8 @@ export default function App() {
               isApiKeyLocked={isApiKeyLocked}
               hasSavedApiKey={hasSavedApiKey}
               isTestingApiKey={isTestingApiKey}
-              onChangeApiKey={setApiKey}
+              onChangeApiKey={handleChangeApiKey}
+              apiKeyError={apiKeyError}
               onSaveApiKey={handleSaveApiKey}
               permissions={permissions}
               isMac={isMac}

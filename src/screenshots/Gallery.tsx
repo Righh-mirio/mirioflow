@@ -151,6 +151,26 @@ export function ScreenshotGallery() {
             isTesting={false}
             onChangeKey={noop}
             onSave={noop}
+            error={null}
+            apiBaseUrlSettings={{
+              apiBaseUrl: null,
+              effectiveApiBaseUrl: "https://api.gladia.io",
+              defaultApiBaseUrl: "https://api.gladia.io",
+            }}
+            onSaveApiBaseUrl={async () => {}}
+          />
+        </AppShell>
+      </ScreenFrame>
+
+      <ScreenFrame id="wrap-02b-api-key-error" label="02b API Key Error">
+        <AppShell id="02b-api-key-error" gate>
+          <ApiKeyOnboardingView
+            displayValue="gl_invalid_example_key"
+            isLocked={false}
+            isTesting={false}
+            onChangeKey={noop}
+            onSave={noop}
+            error="Invalid API key for https://eu1.api.gladia.io."
             apiBaseUrlSettings={{
               apiBaseUrl: null,
               effectiveApiBaseUrl: "https://api.gladia.io",
@@ -177,6 +197,7 @@ export function ScreenshotGallery() {
             isTestingApiKey={false}
             onChangeApiKey={noop}
             onSaveApiKey={noop}
+            apiKeyError={null}
             permissions={{ hotkeyError: null }}
             isMac
             onRecheck={noop}
@@ -204,6 +225,7 @@ export function ScreenshotGallery() {
             isTestingApiKey={false}
             onChangeApiKey={noop}
             onSaveApiKey={noop}
+            apiKeyError={null}
             permissions={{ hotkeyError: null }}
             isMac
             onRecheck={noop}
@@ -231,6 +253,7 @@ export function ScreenshotGallery() {
             isTestingApiKey={false}
             onChangeApiKey={noop}
             onSaveApiKey={noop}
+            apiKeyError={null}
             permissions={{ hotkeyError: null }}
             isMac
             onRecheck={noop}

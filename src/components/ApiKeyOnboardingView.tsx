@@ -11,6 +11,7 @@ export function ApiKeyOnboardingView({
   isTesting,
   onChangeKey,
   onSave,
+  error,
   apiBaseUrlSettings,
   onSaveApiBaseUrl,
 }: {
@@ -19,6 +20,7 @@ export function ApiKeyOnboardingView({
   isTesting: boolean;
   onChangeKey: (v: string) => void;
   onSave: () => void;
+  error: string | null;
   apiBaseUrlSettings: ApiBaseUrlSettings | null;
   onSaveApiBaseUrl: (apiBaseUrl: string | null) => Promise<void>;
 }) {
@@ -33,6 +35,7 @@ export function ApiKeyOnboardingView({
           isTesting={isTesting}
           onChangeKey={onChangeKey}
           onSave={onSave}
+          error={error}
           secondaryAction={
             <button
               type="button"

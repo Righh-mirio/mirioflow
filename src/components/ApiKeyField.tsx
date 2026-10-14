@@ -6,6 +6,7 @@ export function ApiKeyField({
   isTesting,
   onChangeKey,
   onSave,
+  error,
   secondaryAction,
 }: {
   displayValue: string;
@@ -13,6 +14,8 @@ export function ApiKeyField({
   isTesting: boolean;
   onChangeKey: (v: string) => void;
   onSave: () => void;
+  /** Key-check failure, shown under the input. */
+  error?: string | null;
   secondaryAction?: ReactNode;
 }) {
   return (
@@ -23,12 +26,18 @@ export function ApiKeyField({
         value={displayValue}
         onChange={(e) => onChangeKey(e.target.value)}
         disabled={isLocked || isTesting}
-        className={`api-key-input ${isLocked ? "api-key-input-locked" : ""}`}
+        className={`api-key-input ${isLocked ? "api-key-input-locked" : ""}${error ? " form-input--error" : ""}`}
+        aria-invalid={error ? true : undefined}
         autoCorrect="off"
         autoCapitalize="none"
         autoComplete="off"
         spellCheck={false}
       />
+      {error && (
+        <p className="form-footnote form-footnote--danger" role="alert">
+          {error}
+        </p>
+      )}
       <div className="setup-nav setup-nav-center">
         <button
           className={`btn ${isLocked ? "btn-ghost" : "btn-primary"}`}

@@ -17,6 +17,7 @@ export function HomeView({
   isTestingApiKey,
   onChangeApiKey,
   onSaveApiKey,
+  apiKeyError,
   permissions,
   isMac,
   onRecheck,
@@ -38,6 +39,7 @@ export function HomeView({
   isTestingApiKey: boolean;
   onChangeApiKey: (v: string) => void;
   onSaveApiKey: () => void;
+  apiKeyError: string | null;
   permissions: { hotkeyError: string | null };
   isMac: boolean;
   onRecheck: () => void;
@@ -90,7 +92,10 @@ export function HomeView({
       )}
 
       <div className="home-api-slot">
-        <details className="home-api-spoiler" open={!isApiKeyLocked}>
+        <details
+          className="home-api-spoiler"
+          open={!isApiKeyLocked || apiKeyError ? true : undefined}
+        >
           <summary>Edit API key</summary>
           <div className="home-api-section">
             <p className="home-api-section-label">API key</p>
@@ -100,6 +105,7 @@ export function HomeView({
               isTesting={isTestingApiKey}
               onChangeKey={onChangeApiKey}
               onSave={onSaveApiKey}
+              error={apiKeyError}
             />
           </div>
         </details>
