@@ -1,8 +1,5 @@
 use crate::config::DEFAULT_API_BASE_URL;
-use crate::vocabulary::{
-    expand_vocabulary_for_languages, normalize_vocabulary, vocabulary_without_languages,
-    CustomVocabEntry,
-};
+use crate::vocabulary::{expand_vocabulary_for_languages, normalize_vocabulary, CustomVocabEntry};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -65,11 +62,6 @@ impl ApiEndpoint {
     pub fn new(base_url: String, detected_region: &str) -> Self {
         let region = (base_url == DEFAULT_API_BASE_URL).then(|| detected_region.to_string());
         Self { base_url, region }
-    }
-
-    /// Gladia's global API, which accepts a `language` per vocabulary entry.
-    fn is_global(&self) -> bool {
-        self.base_url == DEFAULT_API_BASE_URL
     }
 
     fn live_url(&self) -> String {
@@ -524,11 +516,8 @@ impl From<GladiaError> for String {
 }
 
 fn build_session_request(config: &GladiaConfig) -> SessionRequest {
-    let api_vocabulary = if config.endpoint.is_global() {
-        expand_vocabulary_for_languages(config.custom_vocabulary.clone(), &config.languages)
-    } else {
-        vocabulary_without_languages(config.custom_vocabulary.clone())
-    };
+    let api_vocabulary =
+        expand_vocabulary_for_languages(config.custom_vocabulary.clone(), &config.languages);
     let realtime_processing = if api_vocabulary.is_empty() {
         None
     } else {
@@ -991,44 +980,29 @@ mod tests {
     }
 
     #[test]
-    fn session_request_for_a_regional_host_has_no_vocabulary_language() {
-        let config = config_with_vocabulary(ApiEndpoint::new(
-            "https://eu1.api.gladia.io".to_string(),
-            "us-west",
-        ));
+    fn session_request_keeps_vocabulary_per_language_on_any_host() {
+        // Regional Enterprise hosts accept `language` on vocabulary entries
+        // too (verified on eu1), so every host gets the same vocabulary.
+        for base_url in [DEFAULT_API_BASE_URL, "https://eu1.api.gladia.io"] {
+            let config = config_with_vocabulary(ApiEndpoint::new(base_url.to_string(), "eu-west"));
 
-        let body = serde_json::to_value(build_session_request(&config)).unwrap();
+            let body = serde_json::to_value(build_session_request(&config)).unwrap();
 
-        let vocabulary = &body["realtime_processing"]["custom_vocabulary_config"]["vocabulary"];
-        assert_eq!(
-            vocabulary,
-            &serde_json::json!([{ "value": "gladiaflow", "intensity": 0.4 }])
-        );
-        assert_eq!(body["messages_config"]["receive_acknowledgments"], true);
-        assert_eq!(body["messages_config"]["receive_errors"], true);
-    }
-
-    #[test]
-    fn session_request_for_the_global_api_keeps_vocabulary_per_language() {
-        let config = config_with_vocabulary(ApiEndpoint::new(
-            DEFAULT_API_BASE_URL.to_string(),
-            "eu-west",
-        ));
-
-        let body = serde_json::to_value(build_session_request(&config)).unwrap();
-
-        let vocabulary = body["realtime_processing"]["custom_vocabulary_config"]["vocabulary"]
-            .as_array()
-            .unwrap()
-            .clone();
-        let languages: Vec<_> = vocabulary
-            .iter()
-            .map(|entry| entry["language"].clone())
-            .collect();
-        assert_eq!(
-            languages,
-            vec![serde_json::json!("en"), serde_json::json!("fr")]
-        );
+            let languages: Vec<_> = body["realtime_processing"]["custom_vocabulary_config"]
+                ["vocabulary"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| entry["language"].clone())
+                .collect();
+            assert_eq!(
+                languages,
+                vec![serde_json::json!("en"), serde_json::json!("fr")],
+                "{base_url}"
+            );
+            assert_eq!(body["messages_config"]["receive_acknowledgments"], true);
+            assert_eq!(body["messages_config"]["receive_errors"], true);
+        }
     }
 
     #[test]
