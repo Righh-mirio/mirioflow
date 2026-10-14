@@ -1,9 +1,14 @@
-import type { AppSettings, AudioDeviceInfo } from "../types";
+import type {
+  AppSettings,
+  AudioDeviceInfo,
+  ApiBaseUrlSettings,
+} from "../types";
 import {
   formatKeySymbol,
   sortKeys,
   parseHotkeyParts,
 } from "../lib/keyboardUtils";
+import { ApiBaseUrlField } from "./ApiBaseUrlField";
 import { SettingsGroup, SettingsItem } from "./SettingsList";
 import { SettingsPageLayout } from "./SettingsPageLayout";
 
@@ -32,6 +37,8 @@ export function AppSettingsView({
   permissions,
   region,
   version,
+  apiBaseUrlSettings,
+  onSaveApiBaseUrl,
   onDone,
   onOpenLogs,
 }: {
@@ -62,6 +69,8 @@ export function AppSettingsView({
   permissions: { hotkeyError: string | null };
   region: string;
   version: string;
+  apiBaseUrlSettings: ApiBaseUrlSettings | null;
+  onSaveApiBaseUrl: (apiBaseUrl: string | null) => Promise<void>;
   onDone: () => void;
   onOpenLogs: () => void;
 }) {
@@ -73,6 +82,9 @@ export function AppSettingsView({
     ));
 
   const regionLabel = region || null;
+  const customApiHost = apiBaseUrlSettings?.apiBaseUrl
+    ? apiBaseUrlSettings.apiBaseUrl.replace(/^https?:\/\//, "")
+    : null;
 
   const currentHotkeyParts = parseHotkeyParts(settings.hotkey);
   const defaultDevice = audioDevices.find((device) => device.isDefault);
@@ -88,6 +100,7 @@ export function AppSettingsView({
       onDone={onDone}
       footer={[
         regionLabel && `Region: ${regionLabel}`,
+        customApiHost && `API: ${customApiHost}`,
         version && `v${version}`,
       ]
         .filter(Boolean)
@@ -325,6 +338,13 @@ export function AppSettingsView({
             Open logs folder
           </button>
         </SettingsItem>
+
+        {apiBaseUrlSettings && (
+          <ApiBaseUrlField
+            apiBaseUrlSettings={apiBaseUrlSettings}
+            onSaveApiBaseUrl={onSaveApiBaseUrl}
+          />
+        )}
       </SettingsGroup>
     </SettingsPageLayout>
   );

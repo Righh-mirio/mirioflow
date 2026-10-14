@@ -47,6 +47,14 @@ export interface AppSettings {
   customVocabulary: CustomVocabEntry[];
 }
 
+export interface ApiBaseUrlSettings {
+  /** Custom Gladia API base URL; `null` means use the default. */
+  apiBaseUrl: string | null;
+  /** The URL requests actually go to, given the current settings. */
+  effectiveApiBaseUrl: string;
+  defaultApiBaseUrl: string;
+}
+
 export interface BootstrapState {
   settings: AppSettings;
   apiKeySet: boolean;

@@ -2063,7 +2063,8 @@ select.form-input {
    Alignment rules: row text starts at card border + --settings-item-padding-x,
    and group titles use the same inset; every wide control occupies the same
    right-hand column (--settings-control-width) at the same height. */
-.settings-group {
+.settings-group,
+.onboarding-developer-spoiler {
   --settings-item-padding-x: var(--space-4);
   --settings-control-width: 256px;
   --settings-control-height: 34px;
@@ -2231,4 +2232,18 @@ select.form-input {
 
 .settings-item .endpointing-slider {
   flex: 1;
+}
+
+.onboarding-developer-spoiler .settings-item {
+  margin-top: var(--space-2);
+  padding: 0;
+  text-align: left;
+}
+
+.onboarding-developer-spoiler .form-input {
+  background: var(--bg-secondary);
+}
+
+.onboarding-developer-spoiler .form-input:focus {
+  background: var(--bg-elevated);
 }

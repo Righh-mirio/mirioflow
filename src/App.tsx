@@ -4,6 +4,7 @@ import type {
   AppStatus,
   AppSettings,
   CustomVocabEntry,
+  ApiBaseUrlSettings,
   TranscriptionHistoryPage,
   AudioDeviceInfo,
   AudioDeviceSelection,
@@ -160,6 +161,8 @@ export default function App() {
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [platform, setPlatform] = useState<string>("macos");
   const [region, setRegion] = useState<string>("");
+  const [apiBaseUrlSettings, setApiBaseUrlSettings] =
+    useState<ApiBaseUrlSettings | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false);
   const [activationDropdownOpen, setActivationDropdownOpen] = useState(false);
@@ -499,6 +502,11 @@ export default function App() {
 
       const r = await invoke<string>("get_region").catch(() => "");
       setRegion(r);
+
+      const apiUrl = await invoke<ApiBaseUrlSettings>(
+        "get_api_base_url_settings",
+      ).catch(() => null);
+      setApiBaseUrlSettings(apiUrl);
 
       const v = await getVersion().catch(() => "");
       setAppVersion(v);
@@ -1198,6 +1206,18 @@ export default function App() {
     }
   };
 
+  const handleSaveApiBaseUrl = async (apiBaseUrl: string | null) => {
+    const saved = await invoke<ApiBaseUrlSettings>("save_api_base_url", {
+      apiBaseUrl,
+    });
+    setApiBaseUrlSettings(saved);
+    // The next dictation must open a session against the new endpoint.
+    if (sessionInitialized.current && !isRecordingRef.current) {
+      sessionInitialized.current = false;
+      invoke("close_gladia_session").catch(console.error);
+    }
+  };
+
   const handleSaveApiKey = async () => {
     if (isTestingApiKey || !apiKey.trim()) return;
 
@@ -1871,6 +1891,8 @@ export default function App() {
               permissions={permissions}
               region={region}
               version={appVersion}
+              apiBaseUrlSettings={apiBaseUrlSettings}
+              onSaveApiBaseUrl={handleSaveApiBaseUrl}
               onDone={() => setNavScreen("home")}
               onOpenLogs={() => invoke("open_log_folder").catch(console.error)}
             />
@@ -1908,6 +1930,8 @@ export default function App() {
               isTesting={isTestingApiKey}
               onChangeKey={setApiKey}
               onSave={handleSaveApiKey}
+              apiBaseUrlSettings={apiBaseUrlSettings}
+              onSaveApiBaseUrl={handleSaveApiBaseUrl}
             />
           )}
           {activeScreen === "home" && (
