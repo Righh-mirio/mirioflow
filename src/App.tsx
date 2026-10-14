@@ -1868,7 +1868,6 @@ export default function App() {
               saveCapture={saveCapture}
               handleResetHotkey={handleResetHotkey}
               defaultHotkey={DEFAULT_HOTKEY}
-              isMac={isMac}
               permissions={permissions}
               region={region}
               version={appVersion}

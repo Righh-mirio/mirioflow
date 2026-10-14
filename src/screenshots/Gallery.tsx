@@ -372,7 +372,6 @@ export function ScreenshotGallery() {
             saveCapture={noop}
             handleResetHotkey={noop}
             defaultHotkey="Fn"
-            isMac
             permissions={{ hotkeyError: null }}
             region="EU"
             version="0.1.0"

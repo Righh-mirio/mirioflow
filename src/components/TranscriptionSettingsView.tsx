@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AppSettings } from "../types";
-import { InfoTooltip } from "./InfoTooltip";
+import { SettingsGroup, SettingsItem } from "./SettingsList";
 import { SettingsPageLayout } from "./SettingsPageLayout";
 
 const LANGUAGE_PAGE_SIZE = 5;
@@ -54,10 +54,13 @@ export function TranscriptionSettingsView({
   }, [totalLanguagePages]);
 
   return (
-    <SettingsPageLayout title="Transcription settings">
-      <div className="settings-row">
-        <div className="form-group">
-          <label className="form-label">Languages</label>
+    <SettingsPageLayout title="Transcription settings" onDone={onDone}>
+      <SettingsGroup title="Language">
+        <SettingsItem
+          label="Languages"
+          description="Languages you dictate in"
+          wide
+        >
           <div
             className={`multi-select ${languageDropdownOpen ? "open" : ""}`}
             ref={languageDropdownRef}
@@ -146,9 +149,11 @@ export function TranscriptionSettingsView({
               </div>
             )}
           </div>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Code switching</label>
+        </SettingsItem>
+        <SettingsItem
+          label="Code switching"
+          description="Switch between languages mid-dictation"
+        >
           <label className="toggle-switch" title="Code switching">
             <input
               type="checkbox"
@@ -162,46 +167,37 @@ export function TranscriptionSettingsView({
             />
             <span className="toggle-slider" />
           </label>
-        </div>
-      </div>
+        </SettingsItem>
+      </SettingsGroup>
 
-      <div className="form-group">
-        <label className="form-label">
-          Endpointing
-          <InfoTooltip label="About endpointing">
-            <strong>Endpointing</strong>
-            How long (in seconds) Gladia waits for silence before treating an
-            utterance as finished. Lower values feel snappier but may cut
-            sentences short; higher values wait longer so pauses don&apos;t
-            split your speech.
-          </InfoTooltip>
-        </label>
-        <div className="endpointing-control">
-          <input
-            type="range"
-            className="endpointing-slider"
-            min={0.05}
-            max={1}
-            step={0.05}
-            value={endpointingValue}
-            onChange={(e) =>
-              setSettings({
-                ...settings,
-                endpointing: parseFloat(e.target.value),
-              })
-            }
-          />
-          <span className="endpointing-value">
-            {endpointingValue.toFixed(2)}s
-          </span>
-        </div>
-      </div>
-
-      <div className="setup-nav setup-nav-center">
-        <button className="btn btn-primary" onClick={onDone}>
-          Done
-        </button>
-      </div>
+      <SettingsGroup title="Speech detection">
+        <SettingsItem
+          label="Endpointing"
+          description="Silence before an utterance ends"
+          wide
+        >
+          <div className="endpointing-control">
+            <input
+              type="range"
+              className="endpointing-slider"
+              aria-label="Endpointing"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={endpointingValue}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  endpointing: parseFloat(e.target.value),
+                })
+              }
+            />
+            <span className="endpointing-value">
+              {endpointingValue.toFixed(2)}s
+            </span>
+          </div>
+        </SettingsItem>
+      </SettingsGroup>
     </SettingsPageLayout>
   );
 }
