@@ -185,6 +185,10 @@ pub enum GladiaError {
     JsonError(#[from] serde_json::Error),
     #[error("Session not initialized")]
     SessionNotInitialized,
+    /// The API could not be reached or answered unexpectedly; the message
+    /// is user-facing.
+    #[error("{0}")]
+    ApiUnavailable(String),
 }
 
 impl From<GladiaError> for String {
@@ -476,6 +480,10 @@ impl GladiaClient {
         Ok(())
     }
 
+    /// Check `api_key` against the live API, which is the only API this app
+    /// uses (some regional hosts don't serve the pre-recorded routes).
+    /// `Ok(false)` means the key was rejected; any other failure is an error
+    /// so it isn't misreported as an invalid key.
     pub async fn test_connection(
         &self,
         api_key: &str,
@@ -483,16 +491,29 @@ impl GladiaClient {
     ) -> Result<bool, GladiaError> {
         let client = reqwest::Client::new();
         let response = client
-            .get(format!("{api_base_url}/v2/pre-recorded?limit=1"))
+            .get(format!("{api_base_url}/v2/live?limit=1"))
             .header("x-gladia-key", api_key)
             .header(
                 "x-gladia-version",
                 format!("Gladiaflow/{}", env!("CARGO_PKG_VERSION")),
             )
             .send()
-            .await?;
+            .await
+            .map_err(|error| {
+                log::warn!("[gladia] API key check could not reach {api_base_url}: {error}");
+                GladiaError::ApiUnavailable(format!("Couldn't reach {api_base_url}."))
+            })?;
 
-        Ok(response.status().is_success())
+        let status = response.status();
+        log::info!("[gladia] API key check against {api_base_url}: HTTP {status}");
+        match status.as_u16() {
+            _ if status.is_success() => Ok(true),
+            401 | 403 => Ok(false),
+            _ => Err(GladiaError::ApiUnavailable(format!(
+                "{api_base_url} answered HTTP {}. Check the Gladia API URL.",
+                status.as_u16()
+            ))),
+        }
     }
 
     pub async fn current_session_id(&self) -> Option<String> {
@@ -637,10 +658,37 @@ mod tests {
             .unwrap();
 
         assert!(ok);
-        assert_eq!(
-            server.await.unwrap(),
-            "GET /proxy/v2/pre-recorded?limit=1 HTTP/1.1"
-        );
+        assert_eq!(server.await.unwrap(), "GET /proxy/v2/live?limit=1 HTTP/1.1");
+    }
+
+    #[tokio::test]
+    async fn test_connection_reports_rejected_key_as_invalid() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once(listener, "HTTP/1.1 401 Unauthorized"));
+
+        let ok = GladiaClient::new()
+            .test_connection("key", &base)
+            .await
+            .unwrap();
+
+        assert!(!ok);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_connection_reports_other_statuses_as_errors() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once(listener, "HTTP/1.1 404 Not Found"));
+
+        let error = GladiaClient::new()
+            .test_connection("key", &base)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("HTTP 404"), "{error}");
+        server.await.unwrap();
     }
 
     #[tokio::test]
