@@ -210,11 +210,13 @@ async fn init_gladia_session(
         .await
         .map_err(|error| format!("Failed to join audio preparation task: {error}"))?
         .map_err(|error| error.to_string())?;
+    let api_base_url = config::api_base_url()?;
     log::info!(
-        "initialising Gladia session (region={}, sample_rate={}, code_switching={})",
+        "initialising Gladia session (region={}, sample_rate={}, code_switching={}, api_base_url={})",
         state.region,
         sample_rate,
-        code_switching.unwrap_or(false)
+        code_switching.unwrap_or(false),
+        api_base_url
     );
     let gladia = state.gladia.lock().await;
     gladia.set_audio_format(sample_rate, 1, 16).await;
@@ -234,6 +236,7 @@ async fn init_gladia_session(
             custom_vocabulary,
             endpointing,
             state.region,
+            &api_base_url,
         )
         .await
         .map_err(|e| e.to_string())
@@ -244,9 +247,10 @@ async fn test_gladia_connection(
     api_key: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    let api_base_url = config::api_base_url()?;
     let gladia = state.gladia.lock().await;
     gladia
-        .test_connection(&api_key)
+        .test_connection(&api_key, &api_base_url)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1320,6 +1324,8 @@ fn main() {
             config::get_copy_to_clipboard,
             config::save_activation_mode,
             config::get_activation_mode,
+            config::get_api_base_url_settings,
+            config::save_api_base_url,
             config::save_audio_device_selection,
             config::get_audio_device_selection,
             vocabulary::save_custom_vocabulary,

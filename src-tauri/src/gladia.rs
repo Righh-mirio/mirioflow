@@ -49,6 +49,7 @@ pub struct GladiaConfig {
     pub code_switching: bool,
     pub endpointing: f64,
     pub custom_vocabulary: Vec<CustomVocabEntry>,
+    pub api_base_url: String,
 }
 
 impl Default for GladiaConfig {
@@ -64,6 +65,7 @@ impl Default for GladiaConfig {
             code_switching: false,
             endpointing: 0.6,
             custom_vocabulary: vec![],
+            api_base_url: crate::config::DEFAULT_API_BASE_URL.to_string(),
         }
     }
 }
@@ -205,6 +207,7 @@ impl GladiaClient {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // Mirrors the flat `init_gladia_session` IPC payload.
     pub async fn init_session(
         &self,
         api_key: &str,
@@ -213,6 +216,7 @@ impl GladiaClient {
         custom_vocabulary: Vec<CustomVocabEntry>,
         endpointing: f64,
         region: &str,
+        api_base_url: &str,
     ) -> Result<String, GladiaError> {
         let normalized_vocabulary = normalize_vocabulary(custom_vocabulary);
         let resolved_languages = resolve_session_languages(languages.clone());
@@ -223,7 +227,8 @@ impl GladiaClient {
             let session_unchanged = config.custom_vocabulary == normalized_vocabulary
                 && config.languages == resolved_languages
                 && config.code_switching == code_switching
-                && config.endpointing == endpointing;
+                && config.endpointing == endpointing
+                && config.api_base_url == api_base_url;
             drop(config);
 
             if session_unchanged {
@@ -254,6 +259,7 @@ impl GladiaClient {
             config.languages = resolved_languages.clone();
             config.custom_vocabulary = normalized_vocabulary.clone();
             config.endpointing = endpointing;
+            config.api_base_url = api_base_url.to_string();
             let api_vocabulary =
                 expand_vocabulary_for_languages(normalized_vocabulary, &config.languages);
             let realtime_processing = if api_vocabulary.is_empty() {
@@ -319,7 +325,7 @@ impl GladiaClient {
 
         let client = reqwest::Client::new();
         let response = client
-            .post(format!("https://api.gladia.io/v2/live?region={region}"))
+            .post(format!("{api_base_url}/v2/live?region={region}"))
             .header("x-gladia-key", api_key)
             .header(
                 "x-gladia-version",
@@ -470,10 +476,14 @@ impl GladiaClient {
         Ok(())
     }
 
-    pub async fn test_connection(&self, api_key: &str) -> Result<bool, GladiaError> {
+    pub async fn test_connection(
+        &self,
+        api_key: &str,
+        api_base_url: &str,
+    ) -> Result<bool, GladiaError> {
         let client = reqwest::Client::new();
         let response = client
-            .get("https://api.gladia.io/v2/pre-recorded?limit=1")
+            .get(format!("{api_base_url}/v2/pre-recorded?limit=1"))
             .header("x-gladia-key", api_key)
             .header(
                 "x-gladia-version",
@@ -595,5 +605,58 @@ impl GladiaClient {
 impl Default for GladiaClient {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Serve one HTTP request with `status_line` and return its request line.
+    async fn serve_once(listener: TcpListener, status_line: &'static str) -> String {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let n = socket.read(&mut buf).await.unwrap();
+        let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+        let response = format!("{status_line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        socket.write_all(response.as_bytes()).await.unwrap();
+        request.lines().next().unwrap_or_default().to_string()
+    }
+
+    #[tokio::test]
+    async fn test_connection_uses_custom_api_base_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/proxy", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once(listener, "HTTP/1.1 200 OK"));
+
+        let ok = GladiaClient::new()
+            .test_connection("key", &base)
+            .await
+            .unwrap();
+
+        assert!(ok);
+        assert_eq!(
+            server.await.unwrap(),
+            "GET /proxy/v2/pre-recorded?limit=1 HTTP/1.1"
+        );
+    }
+
+    #[tokio::test]
+    async fn init_session_posts_to_custom_api_base_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once(listener, "HTTP/1.1 401 Unauthorized"));
+
+        let result = GladiaClient::new()
+            .init_session("key", None, false, vec![], 0.1, "eu-west", &base)
+            .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            server.await.unwrap(),
+            "POST /v2/live?region=eu-west HTTP/1.1"
+        );
     }
 }

@@ -17,6 +17,9 @@ pub const DEFAULT_ENDPOINTING: f64 = 0.1;
 /// Default activation mode used when the field is absent.
 pub const DEFAULT_ACTIVATION_MODE: &str = "push-to-talk";
 
+/// Production Gladia API base URL, used unless a custom one is configured.
+pub const DEFAULT_API_BASE_URL: &str = "https://api.gladia.io";
+
 fn default_hotkey() -> String {
     if cfg!(target_os = "macos") {
         "Fn".to_string()
@@ -57,6 +60,10 @@ struct Config {
     /// The app version that last ran. Used to seed vocabulary on upgrade and for logging.
     #[serde(skip_serializing_if = "Option::is_none")]
     installed_version: Option<String>,
+    /// Custom Gladia API base URL (normalized, no trailing slash), set from
+    /// the developer settings. Absent means `DEFAULT_API_BASE_URL`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_base_url: Option<String>,
 }
 
 impl Default for Config {
@@ -75,6 +82,7 @@ impl Default for Config {
             accessibility_prompted: Some(false),
             accessibility_cleanup_generation: Some(0),
             installed_version: None,
+            api_base_url: None,
         }
     }
 }
@@ -115,6 +123,15 @@ impl Config {
         }
         if self.accessibility_cleanup_generation.is_none() {
             self.accessibility_cleanup_generation = defaults.accessibility_cleanup_generation;
+        }
+    }
+
+    /// The Gladia API base URL requests should go to: the custom URL when
+    /// one is set, production otherwise.
+    fn effective_api_base_url(&self) -> String {
+        match self.api_base_url.as_deref() {
+            Some(url) if !url.is_empty() => url.to_string(),
+            _ => DEFAULT_API_BASE_URL.to_string(),
         }
     }
 }
@@ -240,6 +257,38 @@ pub fn audio_device_selection() -> Result<AudioDeviceSelection, String> {
             .clone()
             .unwrap_or(AudioDeviceSelection::Automatic)
     })
+}
+
+/// Effective Gladia API base URL (no trailing slash). See
+/// `Config::effective_api_base_url`.
+pub fn api_base_url() -> Result<String, String> {
+    read_config(Config::effective_api_base_url)
+}
+
+/// Validate and normalize a user-supplied API base URL. Blank input means
+/// "use the default" and yields `None`. Plain `http` is accepted so a local
+/// API can be targeted during development.
+pub fn normalize_api_base_url(raw: &str) -> Result<Option<String>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let url = url::Url::parse(trimmed).map_err(|_| {
+        format!("\"{trimmed}\" is not a valid URL (expected e.g. https://api.gladia.io).")
+    })?;
+    if url.scheme() != "https" && url.scheme() != "http" {
+        return Err("The API URL must start with https:// or http://.".into());
+    }
+    if url.host_str().is_none_or(str::is_empty) {
+        return Err("The API URL must include a host.".into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("The API URL must not contain credentials.".into());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("The API URL must not contain a query string or fragment.".into());
+    }
+    Ok(Some(url.as_str().trim_end_matches('/').to_string()))
 }
 
 pub fn save_custom_vocabulary(vocabulary: Vec<CustomVocabEntry>) -> Result<(), String> {
@@ -512,6 +561,54 @@ pub async fn get_activation_mode() -> Result<String, String> {
     })
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiBaseUrlSettings {
+    api_base_url: Option<String>,
+    effective_api_base_url: String,
+    default_api_base_url: &'static str,
+}
+
+impl ApiBaseUrlSettings {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            api_base_url: config.api_base_url.clone(),
+            effective_api_base_url: config.effective_api_base_url(),
+            default_api_base_url: DEFAULT_API_BASE_URL,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_api_base_url_settings() -> Result<ApiBaseUrlSettings, String> {
+    read_config(ApiBaseUrlSettings::from_config)
+}
+
+/// Save a custom API base URL; `None` or blank resets to the default.
+#[tauri::command]
+pub async fn save_api_base_url(api_base_url: Option<String>) -> Result<ApiBaseUrlSettings, String> {
+    let api_base_url = normalize_api_base_url(api_base_url.as_deref().unwrap_or(""))?;
+    let _guard = config_mutex().lock().unwrap();
+    save_api_base_url_at(&get_config_path(), api_base_url)
+}
+
+fn save_api_base_url_at(
+    path: &Path,
+    api_base_url: Option<String>,
+) -> Result<ApiBaseUrlSettings, String> {
+    let mut saved = None;
+    with_config_at(path, |config| {
+        config.api_base_url = api_base_url;
+        saved = Some(ApiBaseUrlSettings::from_config(config));
+    })?;
+    let saved = saved.expect("with_config_at runs the closure on success");
+    log::info!(
+        "[config] API base URL saved (effective={})",
+        saved.effective_api_base_url
+    );
+    Ok(saved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,5 +876,93 @@ mod tests {
             .0
             .join("config.broken-20260831T120000000Z.json")
             .exists());
+    }
+
+    #[test]
+    fn api_base_url_defaults_to_production() {
+        let config = Config::default();
+        assert_eq!(config.effective_api_base_url(), DEFAULT_API_BASE_URL);
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("api_base_url"));
+    }
+
+    #[test]
+    fn custom_api_base_url_overrides_default() {
+        let mut config = Config {
+            api_base_url: Some("http://localhost:8080".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(config.effective_api_base_url(), "http://localhost:8080");
+
+        config.api_base_url = Some(String::new());
+        assert_eq!(config.effective_api_base_url(), DEFAULT_API_BASE_URL);
+
+        config.api_base_url = None;
+        assert_eq!(config.effective_api_base_url(), DEFAULT_API_BASE_URL);
+    }
+
+    #[test]
+    fn normalize_api_base_url_accepts_and_trims_valid_urls() {
+        for (raw, expected) in [
+            ("https://api.gladia.io", "https://api.gladia.io"),
+            ("  https://api.gladia.io/  ", "https://api.gladia.io"),
+            ("http://localhost:8080", "http://localhost:8080"),
+            ("http://127.0.0.1:3000/", "http://127.0.0.1:3000"),
+            (
+                "https://staging.example.com/proxy/",
+                "https://staging.example.com/proxy",
+            ),
+        ] {
+            assert_eq!(
+                normalize_api_base_url(raw).unwrap().as_deref(),
+                Some(expected),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_api_base_url_treats_blank_as_default() {
+        assert_eq!(normalize_api_base_url("").unwrap(), None);
+        assert_eq!(normalize_api_base_url("   ").unwrap(), None);
+    }
+
+    #[test]
+    fn normalize_api_base_url_rejects_invalid_urls() {
+        for raw in [
+            "api.gladia.io",
+            "not a url",
+            "ftp://api.gladia.io",
+            "file:///tmp/api",
+            "https://user:pass@api.gladia.io",
+            "https://api.gladia.io/?region=eu-west",
+            "https://api.gladia.io/#frag",
+        ] {
+            assert!(normalize_api_base_url(raw).is_err(), "should reject {raw}");
+        }
+    }
+
+    #[test]
+    fn saving_api_base_url_preserves_other_settings() {
+        let dir = TestConfigDir::new();
+        let path = dir.config_path();
+        let config = Config {
+            api_key: Some("secret".to_string()),
+            hotkey: Some("CmdRight".to_string()),
+            ..Config::default()
+        };
+        write_config_to_path(&path, &config).unwrap();
+
+        let saved = save_api_base_url_at(&path, Some("http://localhost:8080".to_string())).unwrap();
+        assert_eq!(saved.effective_api_base_url, "http://localhost:8080");
+
+        let loaded = load_config_from_path(&path).unwrap();
+        assert_eq!(loaded.api_key.as_deref(), Some("secret"));
+        assert_eq!(loaded.hotkey.as_deref(), Some("CmdRight"));
+        assert_eq!(loaded.effective_api_base_url(), "http://localhost:8080");
+
+        let saved = save_api_base_url_at(&path, None).unwrap();
+        assert_eq!(saved.api_base_url, None);
+        assert_eq!(saved.effective_api_base_url, DEFAULT_API_BASE_URL);
     }
 }
