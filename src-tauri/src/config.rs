@@ -40,6 +40,9 @@ struct Config {
     /// Whether to leave the final transcription on the clipboard after a
     /// dictation session (instead of restoring the user's original clipboard).
     copy_to_clipboard: Option<bool>,
+    /// Whether partial transcripts are typed into the focused app while the
+    /// user speaks, then corrected when each final arrives (off by default).
+    live_typing: Option<bool>,
     /// How the trigger key starts a dictation: "push-to-talk" (hold) or
     /// "toggle" (press once to start, once to stop).
     activation_mode: Option<String>,
@@ -79,6 +82,7 @@ impl Default for Config {
             languages: Some(vec!["en".to_string()]),
             code_switching: Some(false),
             copy_to_clipboard: Some(false),
+            live_typing: Some(false),
             activation_mode: Some(DEFAULT_ACTIVATION_MODE.to_string()),
             custom_vocabulary: Some(default_custom_vocabulary()),
             endpointing: Some(DEFAULT_ENDPOINTING),
@@ -108,6 +112,9 @@ impl Config {
         }
         if self.copy_to_clipboard.is_none() {
             self.copy_to_clipboard = defaults.copy_to_clipboard;
+        }
+        if self.live_typing.is_none() {
+            self.live_typing = defaults.live_typing;
         }
         if self.activation_mode.is_none() {
             self.activation_mode = defaults.activation_mode;
@@ -280,6 +287,25 @@ pub fn endpointing() -> Result<f64, String> {
 /// `get_copy_to_clipboard` Tauri command wraps this for the frontend.
 pub fn copy_to_clipboard() -> Result<bool, String> {
     read_config(|config| config.copy_to_clipboard.unwrap_or(false))
+}
+
+/// Whether partial transcripts are typed live. Defaults to `false` when
+/// absent. The `get_live_typing` Tauri command wraps this for the frontend.
+pub fn live_typing() -> Result<bool, String> {
+    read_config(|config| config.live_typing.unwrap_or(false))
+}
+
+/// The trigger key when it stays held for the whole dictation
+/// (push-to-talk), `None` in toggle mode.
+pub fn held_hotkey() -> Result<Option<String>, String> {
+    read_config(|config| {
+        let mode = config
+            .activation_mode
+            .as_deref()
+            .unwrap_or(DEFAULT_ACTIVATION_MODE);
+        (mode == DEFAULT_ACTIVATION_MODE)
+            .then(|| config.hotkey.clone().unwrap_or_else(default_hotkey))
+    })
 }
 
 pub fn audio_device_selection() -> Result<AudioDeviceSelection, String> {
@@ -714,6 +740,7 @@ mod tests {
             "languages": null,
             "code_switching": null,
             "copy_to_clipboard": null,
+            "live_typing": null,
             "custom_vocabulary": null,
             "endpointing": null,
             "accessibility_tcc_reset_done": null,
@@ -727,6 +754,7 @@ mod tests {
         assert_eq!(config.languages, Some(vec!["en".to_string()]));
         assert_eq!(config.code_switching, Some(false));
         assert_eq!(config.copy_to_clipboard, Some(false));
+        assert_eq!(config.live_typing, Some(false));
         assert_eq!(config.custom_vocabulary, Some(default_custom_vocabulary()));
         assert_eq!(config.endpointing, Some(DEFAULT_ENDPOINTING));
         assert_eq!(
