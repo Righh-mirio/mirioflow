@@ -495,7 +495,7 @@ async fn subscribe_to_transcriptions(
                     log::error!("[transcription] error: {message}");
                     let _ = app_handle.emit("transcription-error", message);
                 }
-                gladia::TranscriptionEvent::Partial(text) => {
+                gladia::TranscriptionEvent::Partial { text, .. } => {
                     partial_count += 1;
                     if partial_count == 1 {
                         log::info!(
@@ -505,7 +505,9 @@ async fn subscribe_to_transcriptions(
                     }
                     let _ = app_handle.emit("transcription-partial", text);
                 }
-                gladia::TranscriptionEvent::Final { text, start, end } => {
+                gladia::TranscriptionEvent::Final {
+                    text, start, end, ..
+                } => {
                     final_count += 1;
                     let fragment = cleaner.process_final(&text, start, end);
                     log::info!(

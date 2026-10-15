@@ -223,6 +223,9 @@ struct ServerMessage {
 
 #[derive(Debug, Deserialize)]
 struct TranscriptionData {
+    /// Utterance id (`"<channel>_<seq>"`), shared by its partials and final.
+    #[serde(default)]
+    id: Option<String>,
     #[serde(default)]
     is_final: bool,
     #[serde(default)]
@@ -261,14 +264,17 @@ fn parse_server_message(text: &str) -> Result<Incoming, serde_json::Error> {
             match data.utterance {
                 Some(utterance) if data.is_final => {
                     Incoming::Transcript(TranscriptionEvent::Final {
+                        id: data.id,
                         text: utterance.text,
                         start: utterance.start.unwrap_or(-1.0),
                         end: utterance.end.unwrap_or(-1.0),
                     })
                 }
-                Some(utterance) => {
-                    Incoming::Transcript(TranscriptionEvent::Partial(utterance.text))
-                }
+                Some(utterance) => Incoming::Transcript(TranscriptionEvent::Partial {
+                    id: data.id,
+                    text: utterance.text,
+                    start: utterance.start.unwrap_or(-1.0),
+                }),
                 None => Incoming::Ignored,
             }
         }
@@ -507,8 +513,15 @@ async fn run_session_socket(
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum TranscriptionEvent {
-    Partial(String),
+    /// The current hypothesis for an utterance still being spoken; each one
+    /// replaces the previous partial with the same `id`.
+    Partial {
+        id: Option<String>,
+        text: String,
+        start: f64,
+    },
     Final {
+        id: Option<String>,
         text: String,
         start: f64,
         end: f64,
@@ -1191,6 +1204,7 @@ mod tests {
             )
             .unwrap(),
             Incoming::Transcript(TranscriptionEvent::Final {
+                id: Some("1".to_string()),
                 text: "Hi".to_string(),
                 start: 0.5,
                 end: 1.0
@@ -1198,10 +1212,25 @@ mod tests {
         );
         assert_eq!(
             parse_server_message(
+                r#"{"type":"transcript","data":{"id":"00_00000002","is_final":false,"utterance":{"text":"H","start":0.2,"end":0.4}}}"#
+            )
+            .unwrap(),
+            Incoming::Transcript(TranscriptionEvent::Partial {
+                id: Some("00_00000002".to_string()),
+                text: "H".to_string(),
+                start: 0.2,
+            })
+        );
+        assert_eq!(
+            parse_server_message(
                 r#"{"type":"transcript","data":{"is_final":false,"utterance":{"text":"H"}}}"#
             )
             .unwrap(),
-            Incoming::Transcript(TranscriptionEvent::Partial("H".to_string()))
+            Incoming::Transcript(TranscriptionEvent::Partial {
+                id: None,
+                text: "H".to_string(),
+                start: -1.0,
+            })
         );
         assert_eq!(
             parse_server_message(
@@ -1361,6 +1390,7 @@ mod tests {
         assert_eq!(
             next_event(&mut rx).await,
             TranscriptionEvent::Final {
+                id: Some("1".to_string()),
                 text: "hello".to_string(),
                 start: 0.0,
                 end: 1.0
