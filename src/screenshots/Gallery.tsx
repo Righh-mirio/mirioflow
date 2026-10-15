@@ -121,6 +121,7 @@ function ScreenFrame({
 export function ScreenshotGallery() {
   const [settings, setSettings] = useState<AppSettings>(MOCK_SETTINGS);
   const languageDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const activationDropdownRef = useRef<HTMLDivElement>(null);
   const audioDeviceDropdownRef = useRef<HTMLDivElement>(null);
   const filteredLanguageOptions = EUROPEAN_LANGUAGES;
@@ -359,6 +360,17 @@ export function ScreenshotGallery() {
             setLanguageSearch={noop}
             filteredLanguageOptions={filteredLanguageOptions}
             selectedLanguageSummary="English, French"
+            modelDropdownOpen={false}
+            setModelDropdownOpen={noop}
+            modelDropdownRef={modelDropdownRef}
+            liveModel="solaria-3"
+            liveModelOptions={{
+              status: "ready",
+              models: ["trantoria-1", "solaria-1", "solaria-3"],
+              discovered: true,
+            }}
+            apiHost="eu1.api.gladia.io"
+            onSelectLiveModel={noop}
             onDone={noop}
           />
         </AppShell>
@@ -487,6 +499,17 @@ export function ScreenshotGallery() {
             setLanguageSearch={noop}
             filteredLanguageOptions={filteredLanguageOptions}
             selectedLanguageSummary="English, French"
+            modelDropdownOpen={false}
+            setModelDropdownOpen={noop}
+            modelDropdownRef={modelDropdownRef}
+            liveModel="solaria-3"
+            liveModelOptions={{
+              status: "ready",
+              models: ["trantoria-1", "solaria-1", "solaria-3"],
+              discovered: true,
+            }}
+            apiHost="eu1.api.gladia.io"
+            onSelectLiveModel={noop}
             onDone={noop}
           />
         </AppShell>

@@ -1,6 +1,7 @@
 // File-based config manager for API key storage
 use crate::audio::AudioDeviceSelection;
 use crate::vocabulary::{default_custom_vocabulary, CustomVocabEntry};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -64,6 +65,10 @@ struct Config {
     /// the developer settings. Absent means `DEFAULT_API_BASE_URL`.
     #[serde(skip_serializing_if = "Option::is_none")]
     api_base_url: Option<String>,
+    /// Live model chosen per API base URL (effective URL → model code name):
+    /// each host offers its own models. No entry means the host's default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    live_models: Option<BTreeMap<String, String>>,
 }
 
 impl Default for Config {
@@ -83,6 +88,7 @@ impl Default for Config {
             accessibility_cleanup_generation: Some(0),
             installed_version: None,
             api_base_url: None,
+            live_models: None,
         }
     }
 }
@@ -132,6 +138,32 @@ impl Config {
         match self.api_base_url.as_deref() {
             Some(url) if !url.is_empty() => url.to_string(),
             _ => DEFAULT_API_BASE_URL.to_string(),
+        }
+    }
+
+    /// The live model chosen for the effective API base URL, if any.
+    fn live_model(&self) -> Option<String> {
+        self.live_models
+            .as_ref()?
+            .get(&self.effective_api_base_url())
+            .cloned()
+    }
+
+    /// Choose `model` for the effective API base URL; `None` (or blank)
+    /// goes back to the host's default.
+    fn set_live_model(&mut self, model: Option<String>) {
+        let url = self.effective_api_base_url();
+        let models = self.live_models.get_or_insert_with(BTreeMap::new);
+        match model.map(|model| model.trim().to_string()) {
+            Some(model) if !model.is_empty() => {
+                models.insert(url, model);
+            }
+            _ => {
+                models.remove(&url);
+            }
+        }
+        if models.is_empty() {
+            self.live_models = None;
         }
     }
 }
@@ -263,6 +295,12 @@ pub fn audio_device_selection() -> Result<AudioDeviceSelection, String> {
 /// `Config::effective_api_base_url`.
 pub fn api_base_url() -> Result<String, String> {
     read_config(Config::effective_api_base_url)
+}
+
+/// The live model chosen for the current API base URL; `None` lets the host
+/// pick its default.
+pub fn live_model() -> Result<Option<String>, String> {
+    read_config(Config::live_model)
 }
 
 /// Validate and normalize a user-supplied API base URL. Blank input means
@@ -609,6 +647,25 @@ fn save_api_base_url_at(
     Ok(saved)
 }
 
+/// Save the live model for the current API base URL; `None` or blank goes
+/// back to the host's default.
+#[tauri::command]
+pub async fn save_live_model(model: Option<String>) -> Result<(), String> {
+    with_config(|config| {
+        config.set_live_model(model);
+        log::info!(
+            "[config] live model saved (api_base_url={}, model={})",
+            config.effective_api_base_url(),
+            config.live_model().as_deref().unwrap_or("default")
+        );
+    })
+}
+
+#[tauri::command]
+pub async fn get_live_model() -> Result<Option<String>, String> {
+    live_model()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -940,6 +997,30 @@ mod tests {
         ] {
             assert!(normalize_api_base_url(raw).is_err(), "should reject {raw}");
         }
+    }
+
+    #[test]
+    fn live_model_is_chosen_per_api_base_url() {
+        let mut config = Config::default();
+        assert_eq!(config.live_model(), None);
+
+        config.set_live_model(Some("solaria-1".to_string()));
+        config.api_base_url = Some("https://eu1.api.gladia.io".to_string());
+        assert_eq!(config.live_model(), None);
+        config.set_live_model(Some(" solaria-3 ".to_string()));
+        assert_eq!(config.live_model().as_deref(), Some("solaria-3"));
+
+        config.api_base_url = None;
+        assert_eq!(config.live_model().as_deref(), Some("solaria-1"));
+
+        config.set_live_model(None);
+        assert_eq!(config.live_model(), None);
+        config.api_base_url = Some("https://eu1.api.gladia.io".to_string());
+        config.set_live_model(Some(String::new()));
+        assert_eq!(config.live_model(), None);
+        assert!(config.live_models.is_none());
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("live_models"));
     }
 
     #[test]

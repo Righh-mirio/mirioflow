@@ -5,6 +5,8 @@ import type {
   AppSettings,
   CustomVocabEntry,
   ApiBaseUrlSettings,
+  LiveModelOptions,
+  LiveModels,
   TranscriptionHistoryPage,
   AudioDeviceInfo,
   AudioDeviceSelection,
@@ -169,6 +171,12 @@ export default function App() {
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false);
   const [activationDropdownOpen, setActivationDropdownOpen] = useState(false);
   const [audioDeviceDropdownOpen, setAudioDeviceDropdownOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  /** Live model for the current API base URL; `null` = the host's default. */
+  const [liveModel, setLiveModel] = useState<string | null>(null);
+  const [liveModelOptions, setLiveModelOptions] = useState<LiveModelOptions>({
+    status: "loading",
+  });
   const [dictationStats, setDictationStats] = useState<DictationStats>(
     DEFAULT_DICTATION_STATS,
   );
@@ -240,6 +248,7 @@ export default function App() {
   const languageDropdownRef = useRef<HTMLDivElement | null>(null);
   const activationDropdownRef = useRef<HTMLDivElement | null>(null);
   const audioDeviceDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     ensureNotificationPermission().catch((error) => {
@@ -422,7 +431,8 @@ export default function App() {
     if (
       !languageDropdownOpen &&
       !activationDropdownOpen &&
-      !audioDeviceDropdownOpen
+      !audioDeviceDropdownOpen &&
+      !modelDropdownOpen
     )
       return;
 
@@ -432,16 +442,28 @@ export default function App() {
       const clickedActivation = activationDropdownRef.current?.contains(target);
       const clickedAudioDevice =
         audioDeviceDropdownRef.current?.contains(target);
-      if (!clickedLanguage && !clickedActivation && !clickedAudioDevice) {
+      const clickedModel = modelDropdownRef.current?.contains(target);
+      if (
+        !clickedLanguage &&
+        !clickedActivation &&
+        !clickedAudioDevice &&
+        !clickedModel
+      ) {
         setLanguageDropdownOpen(false);
         setActivationDropdownOpen(false);
         setAudioDeviceDropdownOpen(false);
+        setModelDropdownOpen(false);
       }
     };
 
     window.addEventListener("mousedown", onPointerDown);
     return () => window.removeEventListener("mousedown", onPointerDown);
-  }, [languageDropdownOpen, activationDropdownOpen, audioDeviceDropdownOpen]);
+  }, [
+    languageDropdownOpen,
+    activationDropdownOpen,
+    audioDeviceDropdownOpen,
+    modelDropdownOpen,
+  ]);
 
   const isMac = platform === "macos";
 
@@ -572,6 +594,41 @@ export default function App() {
     };
     init();
   }, [loadApiKeyFromConfig]);
+
+  // Each API base URL offers its own live models and remembers its own
+  // choice: reload both when the URL changes, and refresh the list whenever
+  // Transcription settings opens (availability changes over time).
+  const effectiveApiBaseUrl = apiBaseUrlSettings?.effectiveApiBaseUrl;
+  const transcriptionSettingsOpen = navScreen === "dictation";
+  useEffect(() => {
+    if (!effectiveApiBaseUrl) return;
+    let cancelled = false;
+    invoke<string | null>("get_live_model")
+      .then((model) => {
+        if (!cancelled) setLiveModel(model);
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApiBaseUrl]);
+  useEffect(() => {
+    if (!effectiveApiBaseUrl || !hasSavedApiKey || !transcriptionSettingsOpen)
+      return;
+    let cancelled = false;
+    setLiveModelOptions({ status: "loading" });
+    invoke<LiveModels>("list_live_models", { apiKey: apiKeyRef.current.trim() })
+      .then((liveModels) => {
+        if (!cancelled) setLiveModelOptions({ status: "ready", ...liveModels });
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setLiveModelOptions({ status: "error", message: String(error) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApiBaseUrl, hasSavedApiKey, transcriptionSettingsOpen]);
 
   useEffect(() => {
     if (!bootstrap) {
@@ -1220,6 +1277,22 @@ export default function App() {
     }
   };
 
+  const handleSelectLiveModel = async (model: string | null) => {
+    setModelDropdownOpen(false);
+    if (model === liveModel) return;
+    setLiveModel(model);
+    try {
+      await invoke("save_live_model", { model });
+    } catch (error) {
+      console.error("Failed to save live model:", error);
+    }
+    // The next dictation must open a session on the new model.
+    if (sessionInitialized.current && !isRecordingRef.current) {
+      sessionInitialized.current = false;
+      invoke("close_gladia_session").catch(console.error);
+    }
+  };
+
   const handleChangeApiKey = (value: string) => {
     setApiKey(value);
     setApiKeyError(null);
@@ -1302,11 +1375,12 @@ export default function App() {
   };
 
   const handleOpenDropdown = (
-    dropdown: "languages" | "activation" | "audioDevice",
+    dropdown: "languages" | "activation" | "audioDevice" | "model",
   ) => {
     setLanguageDropdownOpen(dropdown === "languages");
     setActivationDropdownOpen(dropdown === "activation");
     setAudioDeviceDropdownOpen(dropdown === "audioDevice");
+    setModelDropdownOpen(dropdown === "model");
   };
 
   const scheduleSessionEndFallback = () => {
@@ -1869,6 +1943,13 @@ export default function App() {
               setLanguageSearch={setLanguageSearch}
               filteredLanguageOptions={filteredLanguageOptions}
               selectedLanguageSummary={selectedLanguageSummary}
+              modelDropdownOpen={modelDropdownOpen}
+              setModelDropdownOpen={setModelDropdownOpen}
+              modelDropdownRef={modelDropdownRef}
+              liveModel={liveModel}
+              liveModelOptions={liveModelOptions}
+              apiHost={effectiveApiBaseUrl?.replace(/^https?:\/\//, "") ?? ""}
+              onSelectLiveModel={handleSelectLiveModel}
               onDone={() => setNavScreen("home")}
             />
           )}

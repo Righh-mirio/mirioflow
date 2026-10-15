@@ -20,6 +20,9 @@ const MAX_RESEND_BYTES: usize = 6_000_000;
 const RECONNECT_DELAYS_MS: [u64; 3] = [250, 1_000, 2_000];
 /// Drops tolerated per session before giving up.
 const MAX_RECONNECTS: u32 = 5;
+/// Live models offered when a host can't list its own: those Gladia's global
+/// API publishes for `POST /v2/live` (`StreamingSupportedModels`).
+const FALLBACK_LIVE_MODELS: &[&str] = &["solaria-1"];
 
 #[derive(Debug, Default)]
 struct PendingAudioBuffer {
@@ -93,6 +96,8 @@ pub struct GladiaConfig {
     pub code_switching: bool,
     pub endpointing: f64,
     pub custom_vocabulary: Vec<CustomVocabEntry>,
+    /// Live model code name; `None` lets the host pick its default.
+    pub model: Option<String>,
     pub endpoint: ApiEndpoint,
 }
 
@@ -109,6 +114,7 @@ impl Default for GladiaConfig {
             code_switching: false,
             endpointing: 0.6,
             custom_vocabulary: vec![],
+            model: None,
             endpoint: ApiEndpoint::default(),
         }
     }
@@ -140,6 +146,8 @@ struct SessionRequest {
     bit_depth: u32,
     channels: u32,
     endpointing: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
     messages_config: MessagesConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     language_config: Option<LanguageConfig>,
@@ -172,6 +180,27 @@ struct LanguageConfig {
     languages: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     code_switching: Option<bool>,
+}
+
+/// `GET /v2/live/capabilities`: the models `POST /v2/live` accepts for the key.
+#[derive(Debug, Deserialize)]
+struct LiveCapabilities {
+    models: Vec<ModelCapabilities>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelCapabilities {
+    model: String,
+}
+
+/// The live models a host offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveModels {
+    pub models: Vec<String>,
+    /// Whether the host listed them itself; otherwise they are
+    /// `FALLBACK_LIVE_MODELS`.
+    pub discovered: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -546,6 +575,7 @@ fn build_session_request(config: &GladiaConfig) -> SessionRequest {
         bit_depth: config.bit_depth,
         channels: config.channels,
         endpointing: config.endpointing,
+        model: config.model.clone(),
         messages_config: MessagesConfig {
             receive_partial_transcripts: config.receive_partial,
             receive_final_transcripts: config.receive_final,
@@ -571,6 +601,7 @@ impl GladiaClient {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // One argument per session option.
     pub async fn init_session(
         &self,
         api_key: &str,
@@ -578,6 +609,7 @@ impl GladiaClient {
         code_switching: bool,
         custom_vocabulary: Vec<CustomVocabEntry>,
         endpointing: f64,
+        model: Option<String>,
         endpoint: &ApiEndpoint,
     ) -> Result<String, GladiaError> {
         let normalized_vocabulary = normalize_vocabulary(custom_vocabulary);
@@ -590,6 +622,7 @@ impl GladiaClient {
                 && config.languages == resolved_languages
                 && config.code_switching == code_switching
                 && config.endpointing == endpointing
+                && config.model == model
                 && config.endpoint == *endpoint;
             drop(config);
 
@@ -621,6 +654,7 @@ impl GladiaClient {
             config.languages = resolved_languages.clone();
             config.custom_vocabulary = normalized_vocabulary.clone();
             config.endpointing = endpointing;
+            config.model = model;
             config.endpoint = endpoint.clone();
             build_session_request(&config)
         }; // config lock dropped here
@@ -775,6 +809,60 @@ impl GladiaClient {
         }
     }
 
+    /// The live models `api_base_url` offers `api_key`, from
+    /// `GET /v2/live/capabilities` (Gladia Enterprise hosts). A host without
+    /// that route (404, e.g. the global API) gets `FALLBACK_LIVE_MODELS`.
+    pub async fn list_live_models(
+        &self,
+        api_key: &str,
+        api_base_url: &str,
+    ) -> Result<LiveModels, GladiaError> {
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("{api_base_url}/v2/live/capabilities"))
+            .header("x-gladia-key", api_key)
+            .header(
+                "x-gladia-version",
+                format!("Gladiaflow/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|error| {
+                log::warn!("[gladia] live capabilities: couldn't reach {api_base_url}: {error}");
+                GladiaError::ApiUnavailable(format!("Couldn't reach {api_base_url}."))
+            })?;
+
+        let status = response.status();
+        log::info!("[gladia] live capabilities from {api_base_url}: HTTP {status}");
+        match status.as_u16() {
+            _ if status.is_success() => {
+                let capabilities: LiveCapabilities = response.json().await?;
+                Ok(LiveModels {
+                    models: capabilities
+                        .models
+                        .into_iter()
+                        .map(|capability| capability.model)
+                        .collect(),
+                    discovered: true,
+                })
+            }
+            404 => Ok(LiveModels {
+                models: FALLBACK_LIVE_MODELS
+                    .iter()
+                    .map(|model| (*model).to_string())
+                    .collect(),
+                discovered: false,
+            }),
+            401 | 403 => Err(GladiaError::ApiUnavailable(format!(
+                "{api_base_url} rejected the API key."
+            ))),
+            code => Err(GladiaError::ApiUnavailable(format!(
+                "{api_base_url} answered HTTP {code} when listing models."
+            ))),
+        }
+    }
+
     pub async fn current_session_id(&self) -> Option<String> {
         self.session_id.lock().await.clone()
     }
@@ -883,13 +971,95 @@ mod tests {
 
     /// Serve one HTTP request with `status_line` and return its request line.
     async fn serve_once(listener: TcpListener, status_line: &'static str) -> String {
+        serve_once_with_body(listener, status_line, "").await
+    }
+
+    /// Serve one HTTP request with `status_line` and a JSON `body`, and
+    /// return its request line.
+    async fn serve_once_with_body(
+        listener: TcpListener,
+        status_line: &'static str,
+        body: &'static str,
+    ) -> String {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut buf = vec![0u8; 8192];
         let n = socket.read(&mut buf).await.unwrap();
         let request = String::from_utf8_lossy(&buf[..n]).into_owned();
-        let response = format!("{status_line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let response = format!(
+            "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
         socket.write_all(response.as_bytes()).await.unwrap();
         request.lines().next().unwrap_or_default().to_string()
+    }
+
+    #[tokio::test]
+    async fn list_live_models_reads_the_host_capabilities() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once_with_body(
+            listener,
+            "HTTP/1.1 200 OK",
+            r#"{"models":[{"model":"trantoria-1","addons":["pii"]},{"model":"solaria-3","addons":[]}]}"#,
+        ));
+
+        let models = GladiaClient::new()
+            .list_live_models("key", &base)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            models,
+            LiveModels {
+                models: vec!["trantoria-1".to_string(), "solaria-3".to_string()],
+                discovered: true,
+            }
+        );
+        assert_eq!(server.await.unwrap(), "GET /v2/live/capabilities HTTP/1.1");
+    }
+
+    #[tokio::test]
+    async fn list_live_models_falls_back_when_the_host_has_no_capabilities() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once(listener, "HTTP/1.1 404 Not Found"));
+
+        let models = GladiaClient::new()
+            .list_live_models("key", &base)
+            .await
+            .unwrap();
+
+        assert_eq!(models.models, vec!["solaria-1".to_string()]);
+        assert!(!models.discovered);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_live_models_reports_a_rejected_key() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(serve_once(listener, "HTTP/1.1 401 Unauthorized"));
+
+        let error = GladiaClient::new()
+            .list_live_models("key", &base)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("rejected"), "{error}");
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn session_request_sends_the_model_only_when_chosen() {
+        let body = serde_json::to_value(build_session_request(&GladiaConfig::default())).unwrap();
+        assert!(body.get("model").is_none());
+
+        let config = GladiaConfig {
+            model: Some("solaria-3".to_string()),
+            ..GladiaConfig::default()
+        };
+        let body = serde_json::to_value(build_session_request(&config)).unwrap();
+        assert_eq!(body["model"], "solaria-3");
     }
 
     #[tokio::test]
@@ -945,7 +1115,7 @@ mod tests {
         let endpoint = ApiEndpoint::new(base, "us-west");
 
         let result = GladiaClient::new()
-            .init_session("key", None, false, vec![], 0.1, &endpoint)
+            .init_session("key", None, false, vec![], 0.1, None, &endpoint)
             .await;
 
         assert!(result.is_err());
