@@ -17,6 +17,7 @@ mod gladia;
 mod history;
 mod hotkey;
 mod hotkey_layout;
+mod keystrokes;
 mod live_typing;
 mod permissions;
 mod region;
@@ -471,7 +472,7 @@ async fn subscribe_to_transcriptions(
                     // Brief pause before the keystroke, then let the paste land
                     // before the next fragment overwrites the clipboard.
                     std::thread::sleep(std::time::Duration::from_millis(5));
-                    if let Err(e) = send_paste_keystroke() {
+                    if let Err(e) = keystrokes::send_paste() {
                         log::error!("[paste] keystroke failed: {e}");
                     }
                     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -804,86 +805,6 @@ fn clipboard_set(text: &str) -> Result<(), String> {
     use arboard::Clipboard;
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(text).map_err(|e| e.to_string())
-}
-
-/// CoreGraphics keyboard-event simulation. Posting a synthetic Cmd+V directly is
-/// faster than `osascript` and — crucially — only needs Accessibility, not the
-/// separate "control System Events" Automation permission an AppleScript prompts for.
-#[cfg(target_os = "macos")]
-mod cg_paste {
-    use std::ffi::c_void;
-
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGEventCreateKeyboardEvent(
-            source: *const c_void,
-            keycode: u16,
-            key_down: bool,
-        ) -> *mut c_void;
-        fn CGEventSetFlags(event: *mut c_void, flags: u64);
-        fn CGEventPost(tap: u32, event: *mut c_void);
-    }
-
-    #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
-        fn CFRelease(cf: *const c_void);
-    }
-
-    const KCG_HID_EVENT_TAP: u32 = 0;
-    const KVK_V: u16 = 9;
-    const KCG_EVENT_FLAG_MASK_COMMAND: u64 = 1 << 20;
-
-    /// Post a synthetic Cmd+V into the focused app. Requires Accessibility.
-    pub fn simulate_cmd_v() -> Result<(), String> {
-        unsafe {
-            let key_down = CGEventCreateKeyboardEvent(std::ptr::null(), KVK_V, true);
-            if key_down.is_null() {
-                return Err("Failed to create key-down event".into());
-            }
-            CGEventSetFlags(key_down, KCG_EVENT_FLAG_MASK_COMMAND);
-            CGEventPost(KCG_HID_EVENT_TAP, key_down);
-            CFRelease(key_down as *const c_void);
-
-            std::thread::sleep(std::time::Duration::from_millis(20));
-
-            let key_up = CGEventCreateKeyboardEvent(std::ptr::null(), KVK_V, false);
-            if key_up.is_null() {
-                return Err("Failed to create key-up event".into());
-            }
-            CGEventSetFlags(key_up, KCG_EVENT_FLAG_MASK_COMMAND);
-            CGEventPost(KCG_HID_EVENT_TAP, key_up);
-            CFRelease(key_up as *const c_void);
-        }
-        Ok(())
-    }
-}
-
-/// Simulate the paste keystroke into the focused app (Cmd+V on macOS, Ctrl+V
-/// elsewhere). Requires Accessibility permission on macOS.
-fn send_paste_keystroke() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        cg_paste::simulate_cmd_v()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
-        enigo
-            .key(Key::Control, Direction::Press)
-            .map_err(|e| e.to_string())?;
-        enigo
-            .key(Key::Unicode('v'), Direction::Click)
-            .map_err(|e| e.to_string())?;
-        enigo
-            .key(Key::Control, Direction::Release)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        Ok(())
-    }
 }
 
 #[tauri::command]
