@@ -52,6 +52,7 @@ import {
 } from "./lib/holdModeWarning";
 import { loadSavedApiKey, resetCorruptedConfig } from "./lib/configLoad";
 import { resolveHotkeyPress } from "./lib/dictationHotkey";
+import { liveTypingWaitsForRelease } from "./lib/liveTyping";
 import { SidebarNav, type NavScreen } from "./components/SidebarNav";
 import { AppSettingsView } from "./components/AppSettingsView";
 import { TranscriptionSettingsView } from "./components/TranscriptionSettingsView";
@@ -159,6 +160,7 @@ export default function App() {
     hotkey: "Fn",
     codeSwitching: false,
     copyToClipboard: false,
+    liveTyping: false,
     endpointing: 0.1,
     customVocabulary: DEFAULT_CUSTOM_VOCABULARY,
   });
@@ -218,6 +220,7 @@ export default function App() {
   const vocabularySettingsLoaded = useRef(false);
   const endpointingLoaded = useRef(false);
   const copyToClipboardLoaded = useRef(false);
+  const liveTypingLoaded = useRef(false);
   const activationModeLoaded = useRef(false);
   const audioDeviceSelectionLoaded = useRef(false);
 
@@ -318,6 +321,12 @@ export default function App() {
       enabled: settings.copyToClipboard,
     }).catch(console.error);
   }, [settings.copyToClipboard]);
+  useEffect(() => {
+    if (!liveTypingLoaded.current) return;
+    invoke("save_live_typing", { enabled: settings.liveTyping }).catch(
+      console.error,
+    );
+  }, [settings.liveTyping]);
   useEffect(() => {
     if (!activationModeLoaded.current) return;
     invoke("save_activation_mode", { mode: settings.activationMode }).catch(
@@ -564,6 +573,10 @@ export default function App() {
         "get_copy_to_clipboard",
       ).catch(() => false);
 
+      const savedLiveTyping = await invoke<boolean>("get_live_typing").catch(
+        () => false,
+      );
+
       const savedActivationMode = await invoke<ActivationMode>(
         "get_activation_mode",
       ).catch(() => "push-to-talk" as ActivationMode);
@@ -583,6 +596,7 @@ export default function App() {
           : {}),
         endpointing: savedEndpointing,
         copyToClipboard: savedCopyToClipboard,
+        liveTyping: savedLiveTyping,
         activationMode: savedActivationMode,
         audioDeviceSelection: savedAudioDeviceSelection,
         customVocabulary: savedVocabulary,
@@ -591,6 +605,7 @@ export default function App() {
       vocabularySettingsLoaded.current = true;
       endpointingLoaded.current = true;
       copyToClipboardLoaded.current = true;
+      liveTypingLoaded.current = true;
       activationModeLoaded.current = true;
       audioDeviceSelectionLoaded.current = true;
       setSettingsReady(true);
@@ -656,6 +671,7 @@ export default function App() {
           hotkey: settings.hotkey,
           codeSwitching: settings.codeSwitching,
           copyToClipboard: settings.copyToClipboard,
+          liveTyping: settings.liveTyping,
           endpointing: settings.endpointing,
           customVocabulary: settings.customVocabulary,
         },
@@ -1964,6 +1980,11 @@ export default function App() {
               liveModelOptions={liveModelOptions}
               apiHost={effectiveApiBaseUrl?.replace(/^https?:\/\//, "") ?? ""}
               onSelectLiveModel={handleSelectLiveModel}
+              liveTypingWaitsForRelease={liveTypingWaitsForRelease(
+                platform,
+                settings.activationMode,
+                settings.hotkey,
+              )}
               onDone={() => setNavScreen("home")}
             />
           )}

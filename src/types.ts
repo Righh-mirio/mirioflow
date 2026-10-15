@@ -43,6 +43,8 @@ export interface AppSettings {
   hotkey: string;
   codeSwitching: boolean;
   copyToClipboard: boolean;
+  /** Type partial transcripts while speaking, corrected by each final. */
+  liveTyping: boolean;
   endpointing: number;
   customVocabulary: CustomVocabEntry[];
 }

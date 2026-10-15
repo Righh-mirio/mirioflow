@@ -1346,6 +1346,8 @@ fn main() {
             config::get_endpointing,
             config::save_copy_to_clipboard,
             config::get_copy_to_clipboard,
+            config::save_live_typing,
+            config::get_live_typing,
             config::save_activation_mode,
             config::get_activation_mode,
             config::get_api_base_url_settings,

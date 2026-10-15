@@ -606,6 +606,18 @@ pub async fn get_copy_to_clipboard() -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub async fn save_live_typing(enabled: bool) -> Result<(), String> {
+    with_config(|config| {
+        config.live_typing = Some(enabled);
+    })
+}
+
+#[tauri::command]
+pub async fn get_live_typing() -> Result<bool, String> {
+    live_typing()
+}
+
+#[tauri::command]
 pub async fn save_activation_mode(mode: String) -> Result<(), String> {
     if mode != "toggle" && mode != DEFAULT_ACTIVATION_MODE {
         return Err(format!("Unknown activation mode: {mode}"));
