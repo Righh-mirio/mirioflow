@@ -66,10 +66,32 @@ impl UtteranceCleaner {
     /// `flush_pending_period` result, reproduces `accumulated_text()` exactly.
     pub fn process_final(&mut self, raw_text: &str, start: f64, end: f64) -> Option<String> {
         let trimmed = raw_text.trim();
+        let rendered = self.render(trimmed, start);
+        self.last_final_text = Some(trimmed.to_string());
+        let (fragment, new_period) = rendered?;
+
+        self.accumulated_text.push_str(&fragment);
+        self.pending_period = new_period;
+        self.last_final_end = Some(end);
+        Some(fragment)
+    }
+
+    /// The fragment `process_final` would append for this text right now,
+    /// without changing any state (empty when it would append nothing). Live
+    /// typing uses it to lay out a partial transcript the way its final will be.
+    pub fn preview(&self, raw_text: &str, start: f64) -> String {
+        self.render(raw_text, start)
+            .map(|(fragment, _)| fragment)
+            .unwrap_or_default()
+    }
+
+    /// The fragment an utterance appends to the accumulated text, and the
+    /// trailing period it defers. `None` for duplicates and empty input.
+    fn render(&self, raw_text: &str, start: f64) -> Option<(String, Option<char>)> {
+        let trimmed = raw_text.trim();
         if self.last_final_text.as_deref() == Some(trimmed) {
             return None;
         }
-        self.last_final_text = Some(trimmed.to_string());
 
         let text = if self.accumulated_text.is_empty() {
             strip_leading_punctuation(trimmed)
@@ -86,7 +108,7 @@ impl UtteranceCleaner {
         let mut fragment = String::new();
 
         if !self.accumulated_text.is_empty() {
-            if let Some(p) = self.pending_period.take() {
+            if let Some(p) = self.pending_period {
                 let close_in_time = self
                     .last_final_end
                     .is_some_and(|prev_end| is_continuation_gap(prev_end, start));
@@ -94,21 +116,16 @@ impl UtteranceCleaner {
                 let keep_period = !starts_lowercase(&body) && !close_in_time;
 
                 if keep_period {
-                    self.accumulated_text.push(p);
                     fragment.push(p);
                 } else if close_in_time && !starts_lowercase(&body) {
                     body = decapitalize_first(&body);
                 }
             }
-            self.accumulated_text.push(' ');
             fragment.push(' ');
         }
 
-        self.accumulated_text.push_str(&body);
         fragment.push_str(&body);
-        self.pending_period = new_period;
-        self.last_final_end = Some(end);
-        Some(fragment)
+        Some((fragment, new_period))
     }
 
     /// Call when recording stops. Appends any deferred trailing period to the
@@ -399,6 +416,34 @@ mod tests {
             pasted.push(p);
         }
         assert_eq!(pasted, c.accumulated_text());
+    }
+
+    #[test]
+    fn test_preview_matches_the_next_final_fragment() {
+        let inputs = [
+            ("...la ponctuation.", 0.0, 3.0),
+            ("Donc on continue.", 3.2, 4.5),
+            ("Donc on continue.", 4.6, 5.0),
+            ("Bonjour.", 6.0, 6.8),
+            ("  ", 7.0, 7.1),
+            ("comment vas-tu", 8.5, 9.2),
+        ];
+        let mut c = UtteranceCleaner::new();
+        for (text, start, end) in inputs {
+            let preview = c.preview(text, start);
+            let fragment = c.process_final(text, start, end).unwrap_or_default();
+            assert_eq!(preview, fragment, "preview of {text:?}");
+        }
+    }
+
+    #[test]
+    fn test_preview_does_not_change_state() {
+        let mut c = UtteranceCleaner::new();
+        c.process_final("Bonjour.", 0.0, 1.0);
+        assert_eq!(c.preview("Ça va", 1.2), " ça va");
+        assert_eq!(c.preview("Ça va bien", 1.2), " ça va bien");
+        assert_eq!(c.accumulated_text(), "Bonjour");
+        assert_eq!(c.flush_pending_period(), Some('.'));
     }
 
     #[test]
