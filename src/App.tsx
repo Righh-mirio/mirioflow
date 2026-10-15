@@ -174,9 +174,11 @@ export default function App() {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   /** Live model for the current API base URL; `null` = the host's default. */
   const [liveModel, setLiveModel] = useState<string | null>(null);
-  const [liveModelOptions, setLiveModelOptions] = useState<LiveModelOptions>({
-    status: "loading",
-  });
+  /** Last model list fetched, and the API base URL it is for. */
+  const [fetchedLiveModels, setFetchedLiveModels] = useState<{
+    apiBaseUrl: string;
+    options: LiveModelOptions;
+  } | null>(null);
   const [dictationStats, setDictationStats] = useState<DictationStats>(
     DEFAULT_DICTATION_STATS,
   );
@@ -616,19 +618,23 @@ export default function App() {
     if (!effectiveApiBaseUrl || !hasSavedApiKey || !transcriptionSettingsOpen)
       return;
     let cancelled = false;
-    setLiveModelOptions({ status: "loading" });
+    const settle = (options: LiveModelOptions) => {
+      if (!cancelled)
+        setFetchedLiveModels({ apiBaseUrl: effectiveApiBaseUrl, options });
+    };
+    // The list on screen stays until the refresh answers.
     invoke<LiveModels>("list_live_models", { apiKey: apiKeyRef.current.trim() })
-      .then((liveModels) => {
-        if (!cancelled) setLiveModelOptions({ status: "ready", ...liveModels });
-      })
-      .catch((error) => {
-        if (!cancelled)
-          setLiveModelOptions({ status: "error", message: String(error) });
-      });
+      .then((liveModels) => settle({ status: "ready", ...liveModels }))
+      .catch((error) => settle({ status: "error", message: String(error) }));
     return () => {
       cancelled = true;
     };
   }, [effectiveApiBaseUrl, hasSavedApiKey, transcriptionSettingsOpen]);
+  // A list fetched for another URL is never shown.
+  const liveModelOptions: LiveModelOptions =
+    fetchedLiveModels && fetchedLiveModels.apiBaseUrl === effectiveApiBaseUrl
+      ? fetchedLiveModels.options
+      : { status: "loading" };
 
   useEffect(() => {
     if (!bootstrap) {

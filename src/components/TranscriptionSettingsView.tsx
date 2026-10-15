@@ -92,9 +92,7 @@ export function TranscriptionSettingsView({
       ? `Available on ${apiHost}`
       : `Live model on ${apiHost}`;
   const modelError =
-    liveModelOptions.status === "error"
-      ? `Couldn't list models: ${liveModelOptions.message}`
-      : null;
+    liveModelOptions.status === "error" ? liveModelOptions.message : null;
 
   useEffect(() => {
     setLanguagePage((page) => Math.min(page, totalLanguagePages));

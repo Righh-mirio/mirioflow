@@ -855,7 +855,10 @@ impl GladiaClient {
                 discovered: false,
             }),
             401 | 403 => Err(GladiaError::ApiUnavailable(format!(
-                "{api_base_url} rejected the API key."
+                "Invalid API key for {}.",
+                api_base_url
+                    .trim_start_matches("https://")
+                    .trim_start_matches("http://")
             ))),
             code => Err(GladiaError::ApiUnavailable(format!(
                 "{api_base_url} answered HTTP {code} when listing models."
@@ -1045,7 +1048,12 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(error.to_string().contains("rejected"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .starts_with("Invalid API key for 127.0.0.1:"),
+            "{error}"
+        );
         server.await.unwrap();
     }
 
