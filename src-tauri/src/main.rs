@@ -17,6 +17,7 @@ mod gladia;
 mod history;
 mod hotkey;
 mod hotkey_layout;
+mod live_typing;
 mod permissions;
 mod region;
 mod utterance_cleaner;
