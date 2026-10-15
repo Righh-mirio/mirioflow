@@ -47,6 +47,26 @@ export interface AppSettings {
   customVocabulary: CustomVocabEntry[];
 }
 
+export interface ApiBaseUrlSettings {
+  /** Custom Gladia API base URL; `null` means use the default. */
+  apiBaseUrl: string | null;
+  /** The URL requests actually go to, given the current settings. */
+  effectiveApiBaseUrl: string;
+  defaultApiBaseUrl: string;
+}
+
+/** The live models the current API base URL offers (`list_live_models`). */
+export interface LiveModels {
+  models: string[];
+  /** Whether the host listed them itself; otherwise a built-in fallback. */
+  discovered: boolean;
+}
+
+export type LiveModelOptions =
+  | { status: "loading" }
+  | ({ status: "ready" } & LiveModels)
+  | { status: "error"; message: string };
+
 export interface BootstrapState {
   settings: AppSettings;
   apiKeySet: boolean;

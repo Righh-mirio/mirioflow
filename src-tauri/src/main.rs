@@ -210,11 +210,15 @@ async fn init_gladia_session(
         .await
         .map_err(|error| format!("Failed to join audio preparation task: {error}"))?
         .map_err(|error| error.to_string())?;
+    let endpoint = gladia::ApiEndpoint::new(config::api_base_url()?, state.region);
+    let model = config::live_model()?;
     log::info!(
-        "initialising Gladia session (region={}, sample_rate={}, code_switching={})",
-        state.region,
+        "initialising Gladia session (region={}, sample_rate={}, code_switching={}, api_base_url={}, model={})",
+        endpoint.region.as_deref().unwrap_or("from host"),
         sample_rate,
-        code_switching.unwrap_or(false)
+        code_switching.unwrap_or(false),
+        endpoint.base_url,
+        model.as_deref().unwrap_or("default")
     );
     let gladia = state.gladia.lock().await;
     gladia.set_audio_format(sample_rate, 1, 16).await;
@@ -233,8 +237,23 @@ async fn init_gladia_session(
             code_switching.unwrap_or(false),
             custom_vocabulary,
             endpointing,
-            state.region,
+            model,
+            &endpoint,
         )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The live models the current API base URL offers `api_key`.
+#[tauri::command]
+async fn list_live_models(
+    api_key: String,
+    state: State<'_, AppState>,
+) -> Result<gladia::LiveModels, String> {
+    let api_base_url = config::api_base_url()?;
+    let gladia = state.gladia.lock().await.clone();
+    gladia
+        .list_live_models(&api_key, &api_base_url)
         .await
         .map_err(|e| e.to_string())
 }
@@ -244,9 +263,10 @@ async fn test_gladia_connection(
     api_key: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    let api_base_url = config::api_base_url()?;
     let gladia = state.gladia.lock().await;
     gladia
-        .test_connection(&api_key)
+        .test_connection(&api_key, &api_base_url)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1289,6 +1309,7 @@ fn main() {
             config::reset_corrupted_config,
             init_gladia_session,
             test_gladia_connection,
+            list_live_models,
             list_transcription_history,
             open_external_url,
             send_audio_chunk,
@@ -1320,6 +1341,10 @@ fn main() {
             config::get_copy_to_clipboard,
             config::save_activation_mode,
             config::get_activation_mode,
+            config::get_api_base_url_settings,
+            config::save_api_base_url,
+            config::get_live_model,
+            config::save_live_model,
             config::save_audio_device_selection,
             config::get_audio_device_selection,
             vocabulary::save_custom_vocabulary,

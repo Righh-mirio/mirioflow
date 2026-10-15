@@ -12,6 +12,7 @@ const SCREENS = screensArg
   : [
       "01-permissions",
       "02-api-key",
+      "02b-api-key-error",
       "03-home-idle",
       "04-home-recording",
       "04b-home-api-open",
@@ -23,6 +24,7 @@ const SCREENS = screensArg
       "06c-vocabulary-new",
       "07-transcription-settings",
       "08-app-settings",
+      "08b-app-settings-developer",
       "09-language-picker",
     ];
 

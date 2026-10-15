@@ -4,6 +4,9 @@ import type {
   AppStatus,
   AppSettings,
   CustomVocabEntry,
+  ApiBaseUrlSettings,
+  LiveModelOptions,
+  LiveModels,
   TranscriptionHistoryPage,
   AudioDeviceInfo,
   AudioDeviceSelection,
@@ -135,6 +138,8 @@ export default function App() {
   const [isApiKeyLocked, setIsApiKeyLocked] = useState(false);
   const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
   const [isTestingApiKey, setIsTestingApiKey] = useState(false);
+  /** Key-check failure, shown under the API key field (not as a dictation error). */
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [configLoadPending, setConfigLoadPending] = useState(true);
   const [configLoadError, setConfigLoadError] = useState<string | null>(null);
   const [configResetConfirmationOpen, setConfigResetConfirmationOpen] =
@@ -160,10 +165,21 @@ export default function App() {
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [platform, setPlatform] = useState<string>("macos");
   const [region, setRegion] = useState<string>("");
+  const [apiBaseUrlSettings, setApiBaseUrlSettings] =
+    useState<ApiBaseUrlSettings | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false);
   const [activationDropdownOpen, setActivationDropdownOpen] = useState(false);
   const [audioDeviceDropdownOpen, setAudioDeviceDropdownOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  /** Live model for the current API base URL; `null` = the host's default. */
+  const [liveModel, setLiveModel] = useState<string | null>(null);
+  /** Last model list fetched, and the API base URL and key it is for. */
+  const [fetchedLiveModels, setFetchedLiveModels] = useState<{
+    apiBaseUrl: string;
+    apiKey: string;
+    options: LiveModelOptions;
+  } | null>(null);
   const [dictationStats, setDictationStats] = useState<DictationStats>(
     DEFAULT_DICTATION_STATS,
   );
@@ -235,6 +251,7 @@ export default function App() {
   const languageDropdownRef = useRef<HTMLDivElement | null>(null);
   const activationDropdownRef = useRef<HTMLDivElement | null>(null);
   const audioDeviceDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     ensureNotificationPermission().catch((error) => {
@@ -417,7 +434,8 @@ export default function App() {
     if (
       !languageDropdownOpen &&
       !activationDropdownOpen &&
-      !audioDeviceDropdownOpen
+      !audioDeviceDropdownOpen &&
+      !modelDropdownOpen
     )
       return;
 
@@ -427,16 +445,28 @@ export default function App() {
       const clickedActivation = activationDropdownRef.current?.contains(target);
       const clickedAudioDevice =
         audioDeviceDropdownRef.current?.contains(target);
-      if (!clickedLanguage && !clickedActivation && !clickedAudioDevice) {
+      const clickedModel = modelDropdownRef.current?.contains(target);
+      if (
+        !clickedLanguage &&
+        !clickedActivation &&
+        !clickedAudioDevice &&
+        !clickedModel
+      ) {
         setLanguageDropdownOpen(false);
         setActivationDropdownOpen(false);
         setAudioDeviceDropdownOpen(false);
+        setModelDropdownOpen(false);
       }
     };
 
     window.addEventListener("mousedown", onPointerDown);
     return () => window.removeEventListener("mousedown", onPointerDown);
-  }, [languageDropdownOpen, activationDropdownOpen, audioDeviceDropdownOpen]);
+  }, [
+    languageDropdownOpen,
+    activationDropdownOpen,
+    audioDeviceDropdownOpen,
+    modelDropdownOpen,
+  ]);
 
   const isMac = platform === "macos";
 
@@ -500,6 +530,11 @@ export default function App() {
       const r = await invoke<string>("get_region").catch(() => "");
       setRegion(r);
 
+      const apiUrl = await invoke<ApiBaseUrlSettings>(
+        "get_api_base_url_settings",
+      ).catch(() => null);
+      setApiBaseUrlSettings(apiUrl);
+
       const v = await getVersion().catch(() => "");
       setAppVersion(v);
 
@@ -562,6 +597,52 @@ export default function App() {
     };
     init();
   }, [loadApiKeyFromConfig]);
+
+  // Each API base URL offers its own live models and remembers its own
+  // choice: reload both when the URL changes, and refresh the list whenever
+  // Transcription settings opens (availability changes over time).
+  const effectiveApiBaseUrl = apiBaseUrlSettings?.effectiveApiBaseUrl;
+  const transcriptionSettingsOpen = navScreen === "dictation";
+  useEffect(() => {
+    if (!effectiveApiBaseUrl) return;
+    let cancelled = false;
+    invoke<string | null>("get_live_model")
+      .then((model) => {
+        if (!cancelled) setLiveModel(model);
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApiBaseUrl]);
+  useEffect(() => {
+    if (!effectiveApiBaseUrl || !hasSavedApiKey || !transcriptionSettingsOpen)
+      return;
+    let cancelled = false;
+    const fetchApiKey = apiKeyRef.current.trim();
+    const settle = (options: LiveModelOptions) => {
+      if (!cancelled)
+        setFetchedLiveModels({
+          apiBaseUrl: effectiveApiBaseUrl,
+          apiKey: fetchApiKey,
+          options,
+        });
+    };
+    // The list on screen stays until the refresh answers.
+    invoke<LiveModels>("list_live_models", { apiKey: fetchApiKey })
+      .then((liveModels) => settle({ status: "ready", ...liveModels }))
+      .catch((error) => settle({ status: "error", message: String(error) }));
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApiBaseUrl, hasSavedApiKey, transcriptionSettingsOpen]);
+  // A list fetched for another URL or key is never shown.
+  const liveModelOptions: LiveModelOptions =
+    fetchedLiveModels &&
+    fetchedLiveModels.apiBaseUrl === effectiveApiBaseUrl &&
+    fetchedLiveModels.apiKey === apiKey.trim()
+      ? fetchedLiveModels.options
+      : { status: "loading" };
 
   useEffect(() => {
     if (!bootstrap) {
@@ -1198,6 +1279,39 @@ export default function App() {
     }
   };
 
+  const handleSaveApiBaseUrl = async (apiBaseUrl: string | null) => {
+    const saved = await invoke<ApiBaseUrlSettings>("save_api_base_url", {
+      apiBaseUrl,
+    });
+    setApiBaseUrlSettings(saved);
+    // The next dictation must open a session against the new endpoint.
+    if (sessionInitialized.current && !isRecordingRef.current) {
+      sessionInitialized.current = false;
+      invoke("close_gladia_session").catch(console.error);
+    }
+  };
+
+  const handleSelectLiveModel = async (model: string | null) => {
+    setModelDropdownOpen(false);
+    if (model === liveModel) return;
+    setLiveModel(model);
+    try {
+      await invoke("save_live_model", { model });
+    } catch (error) {
+      console.error("Failed to save live model:", error);
+    }
+    // The next dictation must open a session on the new model.
+    if (sessionInitialized.current && !isRecordingRef.current) {
+      sessionInitialized.current = false;
+      invoke("close_gladia_session").catch(console.error);
+    }
+  };
+
+  const handleChangeApiKey = (value: string) => {
+    setApiKey(value);
+    setApiKeyError(null);
+  };
+
   const handleSaveApiKey = async () => {
     if (isTestingApiKey || !apiKey.trim()) return;
 
@@ -1212,6 +1326,7 @@ export default function App() {
     }
 
     const trimmedApiKey = apiKey.trim();
+    setApiKeyError(null);
     setIsTestingApiKey(true);
     setStatus({
       phase: "transcribing",
@@ -1224,11 +1339,13 @@ export default function App() {
         apiKey: trimmedApiKey,
       });
       if (!connectionOk) {
-        setStatus({
-          phase: "error",
-          title: "Error",
-          detail: "Invalid API key. Please check and retry.",
-        });
+        const customUrl = apiBaseUrlSettings?.apiBaseUrl;
+        setApiKeyError(
+          customUrl
+            ? `Invalid API key for ${customUrl}.`
+            : "Invalid API key. Please check and retry.",
+        );
+        setStatus({ phase: "idle", title: "Ready", detail: "" });
         return;
       }
 
@@ -1244,11 +1361,8 @@ export default function App() {
       await checkAllPermissions();
     } catch (e) {
       console.error("Failed to save API key:", e);
-      setStatus({
-        phase: "error",
-        title: "Error",
-        detail: `Failed to save API key: ${e}`,
-      });
+      setApiKeyError(`Couldn't verify the API key. ${e}`);
+      setStatus({ phase: "idle", title: "Ready", detail: "" });
     } finally {
       setIsTestingApiKey(false);
     }
@@ -1275,11 +1389,12 @@ export default function App() {
   };
 
   const handleOpenDropdown = (
-    dropdown: "languages" | "activation" | "audioDevice",
+    dropdown: "languages" | "activation" | "audioDevice" | "model",
   ) => {
     setLanguageDropdownOpen(dropdown === "languages");
     setActivationDropdownOpen(dropdown === "activation");
     setAudioDeviceDropdownOpen(dropdown === "audioDevice");
+    setModelDropdownOpen(dropdown === "model");
   };
 
   const scheduleSessionEndFallback = () => {
@@ -1842,6 +1957,13 @@ export default function App() {
               setLanguageSearch={setLanguageSearch}
               filteredLanguageOptions={filteredLanguageOptions}
               selectedLanguageSummary={selectedLanguageSummary}
+              modelDropdownOpen={modelDropdownOpen}
+              setModelDropdownOpen={setModelDropdownOpen}
+              modelDropdownRef={modelDropdownRef}
+              liveModel={liveModel}
+              liveModelOptions={liveModelOptions}
+              apiHost={effectiveApiBaseUrl?.replace(/^https?:\/\//, "") ?? ""}
+              onSelectLiveModel={handleSelectLiveModel}
               onDone={() => setNavScreen("home")}
             />
           )}
@@ -1868,10 +1990,11 @@ export default function App() {
               saveCapture={saveCapture}
               handleResetHotkey={handleResetHotkey}
               defaultHotkey={DEFAULT_HOTKEY}
-              isMac={isMac}
               permissions={permissions}
               region={region}
               version={appVersion}
+              apiBaseUrlSettings={apiBaseUrlSettings}
+              onSaveApiBaseUrl={handleSaveApiBaseUrl}
               onDone={() => setNavScreen("home")}
               onOpenLogs={() => invoke("open_log_folder").catch(console.error)}
             />
@@ -1907,8 +2030,11 @@ export default function App() {
               displayValue={apiKeyDisplayValue}
               isLocked={isApiKeyLocked}
               isTesting={isTestingApiKey}
-              onChangeKey={setApiKey}
+              onChangeKey={handleChangeApiKey}
+              error={apiKeyError}
               onSave={handleSaveApiKey}
+              apiBaseUrlSettings={apiBaseUrlSettings}
+              onSaveApiBaseUrl={handleSaveApiBaseUrl}
             />
           )}
           {activeScreen === "home" && (
@@ -1924,7 +2050,8 @@ export default function App() {
               isApiKeyLocked={isApiKeyLocked}
               hasSavedApiKey={hasSavedApiKey}
               isTestingApiKey={isTestingApiKey}
-              onChangeApiKey={setApiKey}
+              onChangeApiKey={handleChangeApiKey}
+              apiKeyError={apiKeyError}
               onSaveApiKey={handleSaveApiKey}
               permissions={permissions}
               isMac={isMac}

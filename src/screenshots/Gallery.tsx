@@ -121,6 +121,7 @@ function ScreenFrame({
 export function ScreenshotGallery() {
   const [settings, setSettings] = useState<AppSettings>(MOCK_SETTINGS);
   const languageDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const activationDropdownRef = useRef<HTMLDivElement>(null);
   const audioDeviceDropdownRef = useRef<HTMLDivElement>(null);
   const filteredLanguageOptions = EUROPEAN_LANGUAGES;
@@ -151,6 +152,32 @@ export function ScreenshotGallery() {
             isTesting={false}
             onChangeKey={noop}
             onSave={noop}
+            error={null}
+            apiBaseUrlSettings={{
+              apiBaseUrl: null,
+              effectiveApiBaseUrl: "https://api.gladia.io",
+              defaultApiBaseUrl: "https://api.gladia.io",
+            }}
+            onSaveApiBaseUrl={async () => {}}
+          />
+        </AppShell>
+      </ScreenFrame>
+
+      <ScreenFrame id="wrap-02b-api-key-error" label="02b API Key Error">
+        <AppShell id="02b-api-key-error" gate>
+          <ApiKeyOnboardingView
+            displayValue="gl_invalid_example_key"
+            isLocked={false}
+            isTesting={false}
+            onChangeKey={noop}
+            onSave={noop}
+            error="Invalid API key for https://eu1.api.gladia.io."
+            apiBaseUrlSettings={{
+              apiBaseUrl: null,
+              effectiveApiBaseUrl: "https://api.gladia.io",
+              defaultApiBaseUrl: "https://api.gladia.io",
+            }}
+            onSaveApiBaseUrl={async () => {}}
           />
         </AppShell>
       </ScreenFrame>
@@ -171,6 +198,7 @@ export function ScreenshotGallery() {
             isTestingApiKey={false}
             onChangeApiKey={noop}
             onSaveApiKey={noop}
+            apiKeyError={null}
             permissions={{ hotkeyError: null }}
             isMac
             onRecheck={noop}
@@ -198,6 +226,7 @@ export function ScreenshotGallery() {
             isTestingApiKey={false}
             onChangeApiKey={noop}
             onSaveApiKey={noop}
+            apiKeyError={null}
             permissions={{ hotkeyError: null }}
             isMac
             onRecheck={noop}
@@ -225,6 +254,7 @@ export function ScreenshotGallery() {
             isTestingApiKey={false}
             onChangeApiKey={noop}
             onSaveApiKey={noop}
+            apiKeyError={null}
             permissions={{ hotkeyError: null }}
             isMac
             onRecheck={noop}
@@ -330,6 +360,17 @@ export function ScreenshotGallery() {
             setLanguageSearch={noop}
             filteredLanguageOptions={filteredLanguageOptions}
             selectedLanguageSummary="English, French"
+            modelDropdownOpen={false}
+            setModelDropdownOpen={noop}
+            modelDropdownRef={modelDropdownRef}
+            liveModel="solaria-3"
+            liveModelOptions={{
+              status: "ready",
+              models: ["trantoria-1", "solaria-1", "solaria-3"],
+              discovered: true,
+            }}
+            apiHost="eu1.api.gladia.io"
+            onSelectLiveModel={noop}
             onDone={noop}
           />
         </AppShell>
@@ -372,10 +413,70 @@ export function ScreenshotGallery() {
             saveCapture={noop}
             handleResetHotkey={noop}
             defaultHotkey="Fn"
-            isMac
             permissions={{ hotkeyError: null }}
             region="EU"
             version="0.1.0"
+            apiBaseUrlSettings={{
+              apiBaseUrl: null,
+              effectiveApiBaseUrl: "https://api.gladia.io",
+              defaultApiBaseUrl: "https://api.gladia.io",
+            }}
+            onSaveApiBaseUrl={async () => {}}
+            onDone={noop}
+            onOpenLogs={noop}
+          />
+        </AppShell>
+      </ScreenFrame>
+
+      <ScreenFrame
+        id="wrap-08b-app-settings-developer"
+        label="08b App Settings (Custom API URL)"
+      >
+        <AppShell id="08b-app-settings-developer" activeScreen="settings">
+          <AppSettingsView
+            settings={settings}
+            setSettings={
+              setSettings as React.Dispatch<React.SetStateAction<AppSettings>>
+            }
+            activationDropdownOpen={false}
+            setActivationDropdownOpen={noop}
+            audioDeviceDropdownOpen={false}
+            setAudioDeviceDropdownOpen={noop}
+            activationDropdownRef={activationDropdownRef}
+            audioDeviceDropdownRef={audioDeviceDropdownRef}
+            handleOpenDropdown={noop}
+            activationModeOptions={[
+              { value: "toggle", label: "Toggle" },
+              { value: "push-to-talk", label: "Hold" },
+            ]}
+            selectedActivationModeLabel="Hold"
+            selectedAudioDeviceLabel="System Default"
+            audioDevices={[
+              {
+                id: "built-in",
+                name: "MacBook Pro Microphone",
+                transport: "built_in",
+                isDefault: true,
+                isBuiltIn: true,
+              },
+            ]}
+            isCapturing={false}
+            recordingKeys={[]}
+            canSaveCapture={false}
+            startCapture={noop}
+            cancelCapture={noop}
+            saveCapture={noop}
+            handleResetHotkey={noop}
+            defaultHotkey="Fn"
+            permissions={{ hotkeyError: null }}
+            region="EU"
+            version="0.1.0"
+            apiBaseUrlSettings={{
+              apiBaseUrl: "http://localhost:8080",
+              effectiveApiBaseUrl: "http://localhost:8080",
+              defaultApiBaseUrl: "https://api.gladia.io",
+            }}
+            onSaveApiBaseUrl={async () => {}}
             onDone={noop}
             onOpenLogs={noop}
           />
@@ -398,6 +499,17 @@ export function ScreenshotGallery() {
             setLanguageSearch={noop}
             filteredLanguageOptions={filteredLanguageOptions}
             selectedLanguageSummary="English, French"
+            modelDropdownOpen={false}
+            setModelDropdownOpen={noop}
+            modelDropdownRef={modelDropdownRef}
+            liveModel="solaria-3"
+            liveModelOptions={{
+              status: "ready",
+              models: ["trantoria-1", "solaria-1", "solaria-3"],
+              discovered: true,
+            }}
+            apiHost="eu1.api.gladia.io"
+            onSelectLiveModel={noop}
             onDone={noop}
           />
         </AppShell>

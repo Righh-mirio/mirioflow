@@ -47,6 +47,10 @@ Download the latest installer from [GitHub Releases](https://github.com/gladiaio
 
 The shortcut and activation mode can be changed in **App settings**.
 
+### Custom API URL
+
+To point GladiaFlow at a non-production Gladia API (for example a staging environment or a local API at `http://localhost:8080`), set **Gladia API URL** under **Advanced** in **App settings**. The same field is under **Developer settings** on the first-run API key screen, so a non-production key can be validated against its own environment. Leave it empty, or click **Reset**, to use `https://api.gladia.io`. The URL must be `http(s)://host[:port][/path]` with no query string; GladiaFlow appends `/v2/live` to it (also used to verify the API key), and the WebSocket URL comes from the API's session response. The API key check and every new dictation session use the configured URL. With a custom URL (for example a regional host such as `https://eu1.api.gladia.io`), the region is the address itself, so GladiaFlow sends no `region` parameter.
+
 ## Development
 
 ### Prerequisites
@@ -159,7 +163,7 @@ GladiaFlow is a local desktop client. It does not operate its own cloud backend 
 
 | Data | What happens |
 | --- | --- |
-| Microphone audio | During an active dictation session, PCM audio is streamed over WebSocket to the Gladia Live Transcription API. GladiaFlow does not save audio files locally. |
+| Microphone audio | During an active dictation session, PCM audio is streamed over WebSocket to the Gladia Live Transcription API (or to the custom API URL set in Developer settings). GladiaFlow does not save audio files locally. |
 | Transcripts | Text returns from Gladia. Cleaned transcript text and the Gladia session ID are stored locally in SQLite (`history.db` in the app config directory). |
 | Settings and API key | Stored locally in `config.json` in the user config directory (API key, hotkey, languages, custom vocabulary, and related preferences). |
 | Clipboard | Used transiently to paste transcribed text into the focused app. An optional setting can leave the final transcript on the clipboard. |
