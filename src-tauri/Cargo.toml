@@ -1,6 +1,6 @@
 [package]
 name = "gladiaflow"
-version = "0.1.0"
+version = "1.2.0"
 description = "A Tauri App for real-time voice dictation with Gladia"
 authors = ["Gladia <support@gladia.io>"]
 edition = "2021"
