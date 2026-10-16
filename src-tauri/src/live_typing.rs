@@ -28,8 +28,9 @@ impl Target {
         let committed = cleaner.accumulated_text();
         let mut text = committed.to_owned();
         if let Some(partial) = &provisional.open {
-            let start = partial.layout_start(cleaner.last_final_end());
-            text.push_str(&cleaner.preview(&partial.text, start));
+            let last_final_end = cleaner.last_final_end();
+            let start = partial.layout_start(last_final_end);
+            text.push_str(&cleaner.preview(&partial.layout_text(last_final_end), start));
         }
         Self {
             text,
@@ -75,6 +76,22 @@ impl OpenPartial {
                 (self.first_end - spoken).max(prev_end)
             }
             _ => self.start,
+        }
+    }
+
+    /// The text the utterance is laid out with. Partials without their own
+    /// start often begin in lowercase where their final is capitalised, so
+    /// they are capitalised like it: otherwise the final's first letter would
+    /// retype the whole utterance.
+    fn layout_text(&self, last_final_end: Option<f64>) -> String {
+        if self.has_own_start(last_final_end) {
+            return self.text.clone();
+        }
+        let text = self.text.trim_start();
+        let mut chars = text.chars();
+        match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => String::new(),
         }
     }
 }
@@ -732,6 +749,25 @@ mod tests {
             Final("00_00000001", "Please send it.", 2.2, 4.0),
         ]);
         assert_eq!(text, "Thanks for dinner. Please send it.");
+        assert_eq!(backspaces, 0);
+    }
+
+    /// eu1 French partials begin in lowercase; their finals are capitalised.
+    #[test]
+    fn partials_without_their_own_start_are_capitalised_like_their_final() {
+        use Event::*;
+        let (text, backspaces) = replay(&[
+            Final("00_00000000", "Bonjour à tous!", 0.32, 0.96),
+            Partial("00_00000001", " je", 0.96, 2.88),
+            Partial("00_00000001", " je teste la saisie", 0.96, 4.5),
+            Final("00_00000001", "Je teste la saisie.", 2.72, 7.36),
+            Partial("00_00000002", " le café", 7.36, 9.6),
+            Final("00_00000002", "Le café est prêt.", 9.28, 12.16),
+        ]);
+        assert_eq!(
+            text,
+            "Bonjour à tous! Je teste la saisie. Le café est prêt."
+        );
         assert_eq!(backspaces, 0);
     }
 
