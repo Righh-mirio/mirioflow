@@ -25,6 +25,7 @@ export function TranscriptionSettingsView({
   liveModelOptions,
   apiHost,
   onSelectLiveModel,
+  liveTypingWaitsForRelease,
   onDone,
 }: {
   settings: AppSettings;
@@ -48,6 +49,8 @@ export function TranscriptionSettingsView({
   /** Host of the current API URL, e.g. `eu1.api.gladia.io`. */
   apiHost: string;
   onSelectLiveModel: (model: string | null) => void;
+  /** Live typing holds its text until the trigger key is released. */
+  liveTypingWaitsForRelease: boolean;
   onDone: () => void;
 }) {
   const endpointingValue = Number.isFinite(settings.endpointing)
@@ -290,6 +293,28 @@ export function TranscriptionSettingsView({
               {endpointingValue.toFixed(2)}s
             </span>
           </div>
+        </SettingsItem>
+        <SettingsItem
+          label="Live typing"
+          description={
+            liveTypingWaitsForRelease
+              ? "Text appears when you release the trigger key"
+              : "Type words as you speak, then correct them"
+          }
+        >
+          <label className="toggle-switch" title="Live typing">
+            <input
+              type="checkbox"
+              checked={settings.liveTyping}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  liveTyping: e.target.checked,
+                })
+              }
+            />
+            <span className="toggle-slider" />
+          </label>
         </SettingsItem>
       </SettingsGroup>
     </SettingsPageLayout>

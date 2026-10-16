@@ -22,6 +22,7 @@ const MOCK_SETTINGS: AppSettings = {
   hotkey: "Fn",
   codeSwitching: false,
   copyToClipboard: false,
+  liveTyping: false,
   endpointing: 0.1,
   customVocabulary: [
     ...DEFAULT_CUSTOM_VOCABULARY,
@@ -370,6 +371,7 @@ export function ScreenshotGallery() {
               discovered: true,
             }}
             apiHost="eu1.api.gladia.io"
+            liveTypingWaitsForRelease={false}
             onSelectLiveModel={noop}
             onDone={noop}
           />
@@ -509,6 +511,7 @@ export function ScreenshotGallery() {
               discovered: true,
             }}
             apiHost="eu1.api.gladia.io"
+            liveTypingWaitsForRelease={false}
             onSelectLiveModel={noop}
             onDone={noop}
           />

@@ -1701,7 +1701,9 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "unicode-segmentation",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
