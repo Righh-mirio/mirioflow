@@ -154,7 +154,7 @@ npm run tauri:build
 
 Artifacts are written below `src-tauri/target/`. macOS universal release builds are placed in `universal-apple-darwin/release/bundle/dmg/`; Windows NSIS builds are placed in `release/bundle/nsis/`.
 
-The release workflow runs for tags matching `v*`, stamps the tag version into the Node, Tauri, and Cargo manifests, builds macOS and Windows installers, and publishes them to GitHub Releases.
+Releases go through a pull request: the Release workflow opens a `release/vX.Y.Z` PR that bumps the Node, Tauri, and Cargo versions, and merging it builds the signed macOS and Windows installers, tags the merge commit, and publishes them to GitHub Releases. See [Releasing](CONTRIBUTING.md#releasing).
 
 ## Privacy and data handling
 
