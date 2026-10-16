@@ -274,6 +274,7 @@ fn parse_server_message(text: &str) -> Result<Incoming, serde_json::Error> {
                     id: data.id,
                     text: utterance.text,
                     start: utterance.start.unwrap_or(-1.0),
+                    end: utterance.end.unwrap_or(-1.0),
                 }),
                 None => Incoming::Ignored,
             }
@@ -519,6 +520,7 @@ pub enum TranscriptionEvent {
         id: Option<String>,
         text: String,
         start: f64,
+        end: f64,
     },
     Final {
         id: Option<String>,
@@ -1219,6 +1221,7 @@ mod tests {
                 id: Some("00_00000002".to_string()),
                 text: "H".to_string(),
                 start: 0.2,
+                end: 0.4,
             })
         );
         assert_eq!(
@@ -1230,6 +1233,7 @@ mod tests {
                 id: None,
                 text: "H".to_string(),
                 start: -1.0,
+                end: -1.0,
             })
         );
         assert_eq!(

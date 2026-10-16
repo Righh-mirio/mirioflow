@@ -140,6 +140,11 @@ impl UtteranceCleaner {
     pub fn accumulated_text(&self) -> &str {
         &self.accumulated_text
     }
+
+    /// End of the last final appended, the reference for the next gap.
+    pub fn last_final_end(&self) -> Option<f64> {
+        self.last_final_end
+    }
 }
 
 #[cfg(test)]

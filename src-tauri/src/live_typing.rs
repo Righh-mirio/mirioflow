@@ -28,7 +28,8 @@ impl Target {
         let committed = cleaner.accumulated_text();
         let mut text = committed.to_owned();
         if let Some(partial) = &provisional.open {
-            text.push_str(&cleaner.preview(&partial.text, partial.start));
+            let start = partial.layout_start(cleaner.last_final_end());
+            text.push_str(&cleaner.preview(&partial.text, start));
         }
         Self {
             text,
@@ -37,11 +38,45 @@ impl Target {
     }
 }
 
+/// A partial whose start is within this of the last final's end carries no
+/// start of its own (see `OpenPartial::layout_start`).
+const START_EPSILON_SECS: f64 = 0.01;
+
+/// Rough speaking rate, to date the first words of a partial back from its end.
+const SPOKEN_CHARS_PER_SEC: f64 = 15.0;
+
 #[derive(Debug)]
 struct OpenPartial {
     id: Option<String>,
     text: String,
     start: f64,
+    /// `end` and character count of the utterance's first partial.
+    first_end: f64,
+    first_chars: usize,
+}
+
+impl OpenPartial {
+    /// Whether `start` is the utterance's own. Gladia Enterprise hosts give
+    /// every partial the previous utterance's end as its start; only the
+    /// final has the real one.
+    fn has_own_start(&self, last_final_end: Option<f64>) -> bool {
+        last_final_end.is_none_or(|prev_end| self.start > prev_end + START_EPSILON_SECS)
+    }
+
+    /// The start the utterance is laid out with, which decides whether it
+    /// continues the previous sentence. Without its own start, the speech is
+    /// dated back from the first partial's end by the length of its text:
+    /// guessing "continuation" every time would make each new sentence
+    /// retype the whole utterance when its final adds the period back.
+    fn layout_start(&self, last_final_end: Option<f64>) -> f64 {
+        match last_final_end {
+            Some(prev_end) if !self.has_own_start(last_final_end) => {
+                let spoken = self.first_chars as f64 / SPOKEN_CHARS_PER_SEC;
+                (self.first_end - spoken).max(prev_end)
+            }
+            _ => self.start,
+        }
+    }
 }
 
 /// The latest partial whose final has not arrived yet.
@@ -58,7 +93,7 @@ pub struct Provisional {
 
 impl Provisional {
     /// Records a partial. Returns whether the provisional text changed.
-    pub fn partial(&mut self, id: Option<String>, text: &str, start: f64) -> bool {
+    pub fn partial(&mut self, id: Option<String>, text: &str, start: f64, end: f64) -> bool {
         if let (Some(id), Some(last_final)) = (&id, &self.last_final_id) {
             // A late partial of an utterance that already has its final.
             if id <= last_final {
@@ -77,12 +112,35 @@ impl Provisional {
         {
             return false;
         }
+        let (first_end, first_chars) = match &self.open {
+            Some(open) if open.id == id && open.first_chars > 0 => {
+                (open.first_end, open.first_chars)
+            }
+            _ => (end, text.trim().chars().count()),
+        };
         self.open = Some(OpenPartial {
             id,
             text: text.to_owned(),
             start,
+            first_end,
+            first_chars,
         });
         true
+    }
+
+    /// The start to clean a final with. When its partial had no start of its
+    /// own, the final keeps the estimated one the partial was laid out with,
+    /// so the sentence boundary already typed (period, capital) stays as is.
+    pub fn final_start(&self, id: Option<&String>, start: f64, last_final_end: Option<f64>) -> f64 {
+        match &self.open {
+            Some(open)
+                if (open.id.as_ref() == id || open.id.is_none() || id.is_none())
+                    && !open.has_own_start(last_final_end) =>
+            {
+                open.layout_start(last_final_end)
+            }
+            _ => start,
+        }
     }
 
     /// Records a final: the partial it replaces stops being provisional.
@@ -378,14 +436,14 @@ mod tests {
     #[test]
     fn late_and_stale_partials_are_ignored() {
         let mut p = Provisional::default();
-        assert!(p.partial(Some("00_00000001".into()), "hel", 0.0));
-        assert!(!p.partial(Some("00_00000001".into()), "hel", 0.0));
-        assert!(p.partial(Some("00_00000001".into()), "hello", 0.0));
+        assert!(p.partial(Some("00_00000001".into()), "hel", 0.0, 0.0));
+        assert!(!p.partial(Some("00_00000001".into()), "hel", 0.0, 0.0));
+        assert!(p.partial(Some("00_00000001".into()), "hello", 0.0, 0.0));
         p.finalized(Some("00_00000001".into()));
         assert!(p.open.is_none());
-        assert!(!p.partial(Some("00_00000001".into()), "hello wo", 0.0));
-        assert!(p.partial(Some("00_00000002".into()), "next", 2.0));
-        assert!(!p.partial(Some("00_00000001".into()), "older", 0.0));
+        assert!(!p.partial(Some("00_00000001".into()), "hello wo", 0.0, 0.0));
+        assert!(p.partial(Some("00_00000002".into()), "next", 2.0, 2.0));
+        assert!(!p.partial(Some("00_00000001".into()), "older", 0.0, 0.0));
         // A final of an older utterance keeps the newer partial open.
         p.finalized(Some("00_00000001".into()));
         assert!(p.open.is_some());
@@ -394,11 +452,11 @@ mod tests {
     #[test]
     fn partials_without_ids_are_replaced_by_any_final() {
         let mut p = Provisional::default();
-        assert!(p.partial(None, "one", 0.0));
-        assert!(p.partial(None, "one two", 0.0));
+        assert!(p.partial(None, "one", 0.0, 0.0));
+        assert!(p.partial(None, "one two", 0.0, 0.0));
         p.finalized(None);
         assert!(p.open.is_none());
-        assert!(p.partial(None, "three", 2.0));
+        assert!(p.partial(None, "three", 2.0, 2.0));
     }
 
     /// Applies edits to a string, like a text field would.
@@ -566,7 +624,7 @@ mod tests {
         for event in events {
             match event {
                 P(id, text, start) => {
-                    provisional.partial(Some(id.into()), text, start);
+                    provisional.partial(Some(id.into()), text, start, start);
                 }
                 F(id, text, start, end) => {
                     cleaner.process_final(text, start, end);
@@ -595,5 +653,115 @@ mod tests {
         );
         screen.typed(&target);
         assert_eq!(screen.text(), cleaner.accumulated_text());
+    }
+
+    enum Event {
+        /// id, text, start, end
+        Partial(&'static str, &'static str, f64, f64),
+        Final(&'static str, &'static str, f64, f64),
+    }
+
+    /// Replays events the way the subscription task does in live-typing
+    /// mode; returns what was typed and the backspaces it took.
+    fn replay(events: &[Event]) -> (String, usize) {
+        let mut cleaner = UtteranceCleaner::new();
+        let mut provisional = Provisional::default();
+        let mut screen = Screen::default();
+        let mut backspaces = 0;
+        for event in events {
+            match *event {
+                Event::Partial(id, text, start, end) => {
+                    provisional.partial(Some(id.into()), text, start, end);
+                }
+                Event::Final(id, text, start, end) => {
+                    let id = Some(id.to_owned());
+                    let start =
+                        provisional.final_start(id.as_ref(), start, cleaner.last_final_end());
+                    cleaner.process_final(text, start, end);
+                    provisional.finalized(id);
+                }
+            }
+            let target = Target::new(&cleaner, &provisional);
+            backspaces += screen.edit_to(&target).expect("deleted a final").backspaces;
+            screen.typed(&target);
+        }
+        cleaner.flush_pending_period();
+        provisional.clear();
+        let target = Target::new(&cleaner, &provisional);
+        backspaces += screen.edit_to(&target).expect("deleted a final").backspaces;
+        screen.typed(&target);
+        assert_eq!(screen.text(), cleaner.accumulated_text());
+        (screen.text().to_owned(), backspaces)
+    }
+
+    /// Gladia Enterprise (eu1, solaria-1) timings: each partial starts at the
+    /// previous final's end, the final has the real start. Sentence breaks
+    /// must not retype the utterance when the final lands.
+    #[test]
+    fn partials_without_their_own_start_keep_sentence_breaks() {
+        use Event::*;
+        let (text, backspaces) = replay(&[
+            Partial("00_00000000", "Hello", 0.0, 0.96),
+            Final("00_00000000", "Hello team.", 0.80, 1.36),
+            // 1.2 s pause: a continuation.
+            Partial("00_00000001", "we are", 1.36, 2.88),
+            Partial("00_00000001", "we are testing live typing", 1.36, 4.0),
+            Final("00_00000001", "We are testing live typing.", 2.56, 5.92),
+            // 1.9 s pause: a new sentence.
+            Partial("00_00000002", "The", 5.92, 8.0),
+            Partial("00_00000002", "The quick brown fox", 5.92, 9.2),
+            Final("00_00000002", "The quick brown fox.", 7.84, 12.32),
+        ]);
+        assert_eq!(
+            text,
+            "Hello team we are testing live typing. The quick brown fox."
+        );
+        assert_eq!(backspaces, 0);
+    }
+
+    /// When the estimate and the final's own start disagree (solaria-3's
+    /// partials come about a second late), the boundary already typed wins.
+    #[test]
+    fn a_final_keeps_the_sentence_break_its_partial_typed() {
+        use Event::*;
+        let (text, backspaces) = replay(&[
+            Final("00_00000000", "Thanks for dinner.", 0.0, 1.0),
+            // Dated back to 3.0 s (2 s gap) though the final says 2.2 s.
+            Partial("00_00000001", "Please", 1.0, 3.4),
+            Partial("00_00000001", "Please send it", 1.0, 4.0),
+            Final("00_00000001", "Please send it.", 2.2, 4.0),
+        ]);
+        assert_eq!(text, "Thanks for dinner. Please send it.");
+        assert_eq!(backspaces, 0);
+    }
+
+    /// The global API gives partials their own start: it is used as is, and
+    /// finals keep theirs.
+    #[test]
+    fn a_partial_with_its_own_start_is_laid_out_with_it() {
+        let mut p = Provisional::default();
+        p.partial(Some("00_00000001".into()), "Please", 1.2, 3.4);
+        let open = p.open.as_ref().unwrap();
+        assert!(open.has_own_start(Some(1.0)));
+        assert_eq!(open.layout_start(Some(1.0)), 1.2);
+        assert_eq!(
+            p.final_start(Some(&"00_00000001".into()), 1.25, Some(1.0)),
+            1.25
+        );
+
+        // Without its own start: dated back from the first partial's end.
+        p.partial(Some("00_00000002".into()), "Please", 1.0, 3.4);
+        p.partial(Some("00_00000002".into()), "Please send", 1.0, 3.9);
+        let estimate = 3.4 - 6.0 / SPOKEN_CHARS_PER_SEC;
+        let open = p.open.as_ref().unwrap();
+        assert!(!open.has_own_start(Some(1.0)));
+        assert!((open.layout_start(Some(1.0)) - estimate).abs() < 1e-9);
+        // Never before the previous final's end.
+        assert_eq!(open.layout_start(Some(3.3)), 3.3);
+        // A final of another utterance keeps its own start.
+        assert_eq!(
+            p.final_start(Some(&"00_00000003".into()), 5.0, Some(1.0)),
+            5.0
+        );
     }
 }
