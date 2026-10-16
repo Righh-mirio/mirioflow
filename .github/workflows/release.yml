@@ -1,19 +1,173 @@
 name: Release
 
+# 1. Actions > Release > Run workflow with a version: opens a `release/vX.Y.Z` PR that bumps
+#    the Node, Tauri and Cargo versions, and runs CI on it.
+# 2. Merging that PR verifies the merge commit, builds the signed installers, tags the merge
+#    commit and publishes the GitHub release with generated notes.
+
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to release (for example, 1.2.3)
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    types: [closed]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.pull_request.number || inputs.version }}
   cancel-in-progress: false
 
 jobs:
+  version-pr:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: Open release PR
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write # dispatch CI on the release branch
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+
+      - name: Create release pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          version="${REQUESTED_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version '${REQUESTED_VERSION}': expected MAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          tag="v${version}"
+          branch="release/${tag}"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists." >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null 2>&1; then
+            echo "Branch ${branch} already exists." >&2
+            exit 1
+          fi
+
+          previous="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+
+          node scripts/set-version.mjs "$tag"
+          git switch -c "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "chore: release ${tag}"
+          git push origin "$branch"
+
+          {
+            echo "Bumps the app version to \`${version}\` in the Node, Tauri and Cargo manifests."
+            echo
+            echo "Merging this PR builds the signed macOS and Windows installers, tags the merge commit \`${tag}\` and publishes the GitHub release."
+            if [ -n "$previous" ]; then
+              echo
+              echo "### Commits since ${previous}"
+              echo
+              git log --no-merges --format='- %s (%h)' "${previous}..main"
+            fi
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: release ${tag}" \
+            --body-file "$RUNNER_TEMP/pr-body.md"
+
+          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows; dispatch CI so
+          # its checks show up on the release PR.
+          gh workflow run ci.yml --ref "$branch"
+
+  context:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
+    runs-on: ubuntu-latest
+    name: Release context
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - id: release
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          tag="${HEAD_BRANCH#release/}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Branch ${HEAD_BRANCH} is not release/vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "sha=${MERGE_SHA}" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: context
+    runs-on: macos-latest
+    name: Verify
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.context.outputs.sha }}
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - name: Verify merged versions
+        env:
+          RELEASE_TAG: ${{ needs.context.outputs.tag }}
+        run: |
+          node scripts/set-version.mjs "$RELEASE_TAG"
+          git diff --exit-code
+
+      - name: Verify tag is free
+        env:
+          RELEASE_TAG: ${{ needs.context.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Tag ${RELEASE_TAG} already exists." >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm test
+
   build:
+    needs: [context, verify]
     strategy:
       fail-fast: false
       matrix:
@@ -31,47 +185,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.label }})
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Parse version from tag
-        id: version
-        shell: bash
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Stamp version in package.json
-        shell: bash
-        run: |
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = '${{ steps.version.outputs.version }}';
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
-
-      - name: Stamp version in tauri.conf.json
-        shell: bash
-        run: |
-          node -e "
-            const fs = require('fs');
-            const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            conf.version = '${{ steps.version.outputs.version }}';
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
-          "
-
-      - name: Stamp version in Cargo.toml
-        shell: bash
-        run: |
-          sed -i.bak 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' src-tauri/Cargo.toml
-          rm -f src-tauri/Cargo.toml.bak
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.context.outputs.sha }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
 
       - name: Add Rust targets
         if: matrix.rust_target != ''
@@ -84,7 +211,7 @@ jobs:
           fi
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
 
@@ -132,7 +259,7 @@ jobs:
 
       - name: Upload macOS artifacts
         if: matrix.artifact == 'dmg'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-bundle-universal
           path: |
@@ -141,7 +268,7 @@ jobs:
 
       - name: Upload Windows artifacts
         if: matrix.artifact == 'nsis'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-bundle
           path: |
@@ -149,24 +276,31 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [context, build]
     runs-on: ubuntu-latest
     name: Create GitHub Release
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
-
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
 
       - name: List artifacts
         run: find artifacts -type f
 
+      # Creates the tag on the exact merge commit that was verified and built.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
-          files: |
-            artifacts/macos-bundle-universal/*
-            artifacts/windows-bundle/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.context.outputs.tag }}
+          RELEASE_SHA: ${{ needs.context.outputs.sha }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            artifacts/macos-bundle-universal/* \
+            artifacts/windows-bundle/* \
+            --target "$RELEASE_SHA" \
+            --title "$RELEASE_TAG" \
+            --generate-notes
