@@ -47,17 +47,7 @@ Download the latest installer from [GitHub Releases](https://github.com/gladiaio
 
 The shortcut and activation mode can be changed in **App settings**.
 
-### Live typing
-
-By default, GladiaFlow pastes each sentence once Gladia finalizes it. Turn on **Live typing** in **Transcription settings** to see words appear in the focused app as you speak: GladiaFlow types Gladia's partial transcripts and corrects them in place when each final arrives. It types with synthetic keystrokes, so it never uses the clipboard during the dictation.
-
-- If you switch to another window mid-dictation, typing stops so no correction lands in the wrong app; the whole transcript is then left on the clipboard.
-- On Windows with a push-to-talk shortcut that includes a modifier (the default <kbd>Ctrl</kbd> + <kbd>Space</kbd>), text appears when you release the shortcut: keys typed while <kbd>Ctrl</kbd> is held would act as shortcuts. Use toggle mode to see text while you speak.
-- Apps that autocorrect or autocomplete as you type can change the text under GladiaFlow's corrections.
-
-### Custom API URL
-
-To point GladiaFlow at a non-production Gladia API (for example a staging environment or a local API at `http://localhost:8080`), set **Gladia API URL** under **Advanced** in **App settings**. The same field is under **Developer settings** on the first-run API key screen, so a non-production key can be validated against its own environment. Leave it empty, or click **Reset**, to use `https://api.gladia.io`. The URL must be `http(s)://host[:port][/path]` with no query string; GladiaFlow appends `/v2/live` to it (also used to verify the API key), and the WebSocket URL comes from the API's session response. The API key check and every new dictation session use the configured URL. With a custom URL (for example a regional host such as `https://eu1.api.gladia.io`), the region is the address itself, so GladiaFlow sends no `region` parameter.
+Turn on **Live typing** in **Transcription settings** to see partials words appear in the focused app as you speak, instead of once each final sentences.
 
 ## Development
 
@@ -117,7 +107,7 @@ Focused app ← clipboard-safe paste ← transcript cleanup
 1. The global hotkey starts microphone capture and opens a Gladia live session.
 2. PCM audio is sent in chunks while partial and final transcription events stream back.
 3. Final utterances pass through `UtteranceCleaner`, which handles punctuation, capitalization, and duplicates.
-4. Clean incremental text is pasted into the focused app without permanently replacing the clipboard. With **Live typing** on, partial transcripts are typed as you speak and corrected when each final arrives.
+4. Clean incremental text is pasted into the focused app without permanently replacing the clipboard.
 5. Releasing the hotkey—or toggling it off—finalizes the session and returns the overlay to idle.
 
 ## Architecture
@@ -172,10 +162,10 @@ GladiaFlow is a local desktop client. It does not operate its own cloud backend 
 
 | Data | What happens |
 | --- | --- |
-| Microphone audio | During an active dictation session, PCM audio is streamed over WebSocket to the Gladia Live Transcription API (or to the custom API URL set in Developer settings). GladiaFlow does not save audio files locally. |
+| Microphone audio | During an active dictation session, PCM audio is streamed over WebSocket to the Gladia Live Transcription API. GladiaFlow does not save audio files locally. |
 | Transcripts | Text returns from Gladia. Cleaned transcript text and the Gladia session ID are stored locally in SQLite (`history.db` in the app config directory). |
 | Settings and API key | Stored locally in `config.json` in the user config directory (API key, hotkey, languages, custom vocabulary, and related preferences). |
-| Clipboard | Used transiently to paste transcribed text into the focused app (not used with Live typing, which types instead). An optional setting can leave the final transcript on the clipboard. |
+| Clipboard | Used transiently to paste transcribed text into the focused app. An optional setting can leave the final transcript on the clipboard. |
 
 Audio and transcripts processed by Gladia are subject to Gladia’s own policies:
 

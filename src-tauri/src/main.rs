@@ -531,7 +531,12 @@ async fn subscribe_to_transcriptions(
                     log::error!("[transcription] error: {message}");
                     let _ = app_handle.emit("transcription-error", message);
                 }
-                gladia::TranscriptionEvent::Partial { id, text, start } => {
+                gladia::TranscriptionEvent::Partial {
+                    id,
+                    text,
+                    start,
+                    end,
+                } => {
                     partial_count += 1;
                     if partial_count == 1 {
                         log::info!(
@@ -540,7 +545,7 @@ async fn subscribe_to_transcriptions(
                         );
                     }
                     if let Some(tx) = &live_tx {
-                        if provisional.partial(id, &text, start) {
+                        if provisional.partial(id, &text, start, end) {
                             let _ = tx.send(live_typing::Target::new(&cleaner, &provisional));
                         }
                     }
@@ -553,7 +558,14 @@ async fn subscribe_to_transcriptions(
                     end,
                 } => {
                     final_count += 1;
-                    let fragment = cleaner.process_final(&text, start, end);
+                    // Live typing keeps the sentence boundary it already
+                    // typed when the partial carried no start of its own.
+                    let clean_start = if live_tx.is_some() {
+                        provisional.final_start(id.as_ref(), start, cleaner.last_final_end())
+                    } else {
+                        start
+                    };
+                    let fragment = cleaner.process_final(&text, clean_start, end);
                     log::info!(
                         "[transcription] final #{final_count} [{start:.2}s-{end:.2}s] ({} chars, transcript now {} chars)",
                         text.chars().count(),
