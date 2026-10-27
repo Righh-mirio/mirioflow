@@ -238,6 +238,7 @@ fn show_main_window(app: &tauri::AppHandle) {
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -1298,6 +1299,12 @@ fn main() {
     }
 
     tauri::Builder::default()
+        // Must be the first plugin: a second launch (Start menu, desktop icon)
+        // exits right away and brings the running app's window back instead of
+        // adding another tray icon.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
