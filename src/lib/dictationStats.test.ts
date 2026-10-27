@@ -16,12 +16,8 @@ import {
 const at = (month: number, day: number, hour = 10) =>
   new Date(2026, month, day, hour);
 
-const record = (
-  stats: DictationStats,
-  date: Date,
-  words = 30,
-  seconds = 12,
-) => recordDictation(stats, { words, seconds, at: date });
+const record = (stats: DictationStats, date: Date, words = 30, seconds = 12) =>
+  recordDictation(stats, { words, seconds, at: date });
 
 describe("recordDictation", () => {
   it("adds two dictations on the same day to one day record", () => {
@@ -111,9 +107,9 @@ describe("parseStoredDictationStats", () => {
     expect(stats.totalWords).toBe(1247);
     expect(stats.totalSeconds).toBe(600);
     expect(stats.days).toEqual({});
-    expect(summarizeDictationStats(stats, at(8, 24)).wordsPerMinute).toBeCloseTo(
-      124.7,
-    );
+    expect(
+      summarizeDictationStats(stats, at(8, 24)).wordsPerMinute,
+    ).toBeCloseTo(124.7);
   });
 
   it("prefers v2 data over v1 once it exists", () => {

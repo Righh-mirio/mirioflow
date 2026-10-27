@@ -147,9 +147,9 @@ struct AudioLevelThrottle {
 impl AudioLevelThrottle {
     fn observe(&mut self, level: f32, now: Instant) -> Option<f32> {
         self.peak = self.peak.max(level);
-        let due = self
-            .last_emit
-            .map_or(true, |last| now.duration_since(last) >= AUDIO_LEVEL_EMIT_INTERVAL);
+        let due = self.last_emit.map_or(true, |last| {
+            now.duration_since(last) >= AUDIO_LEVEL_EMIT_INTERVAL
+        });
         if !due {
             return None;
         }
@@ -880,9 +880,7 @@ mod audio_level_tests {
     use std::time::{Duration, Instant};
 
     fn constant_pcm(amplitude: i16, samples: usize) -> Vec<u8> {
-        (0..samples)
-            .flat_map(|_| amplitude.to_le_bytes())
-            .collect()
+        (0..samples).flat_map(|_| amplitude.to_le_bytes()).collect()
     }
 
     // A constant signal has RMS equal to its amplitude.
@@ -919,8 +917,14 @@ mod audio_level_tests {
         let start = Instant::now();
         let mut throttle = AudioLevelThrottle::default();
         assert_eq!(throttle.observe(0.2, start), Some(0.2));
-        assert_eq!(throttle.observe(0.9, start + Duration::from_millis(5)), None);
-        assert_eq!(throttle.observe(0.1, start + Duration::from_millis(10)), None);
+        assert_eq!(
+            throttle.observe(0.9, start + Duration::from_millis(5)),
+            None
+        );
+        assert_eq!(
+            throttle.observe(0.1, start + Duration::from_millis(10)),
+            None
+        );
         assert_eq!(
             throttle.observe(0.3, start + AUDIO_LEVEL_EMIT_INTERVAL),
             Some(0.9)

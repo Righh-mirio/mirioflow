@@ -30,9 +30,9 @@ describe("validateVocabularyTerm", () => {
 
 describe("normalizePronunciationCandidate", () => {
   it("trims a unique pronunciation", () => {
-    expect(
-      normalizePronunciationCandidate(["say drop"], " stay drop "),
-    ).toBe("stay drop");
+    expect(normalizePronunciationCandidate(["say drop"], " stay drop ")).toBe(
+      "stay drop",
+    );
   });
 
   it("rejects empty and case-insensitive duplicate pronunciations", () => {

@@ -2371,7 +2371,8 @@ html.overlay-window body {
   justify-content: center;
   border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--color-neutral-900) 72%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-neutral-600) 60%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--color-neutral-600) 60%, transparent);
   overflow: hidden;
   transition:
     width 0.22s var(--ease-out),

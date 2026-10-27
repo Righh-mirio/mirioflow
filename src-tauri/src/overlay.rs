@@ -9,8 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 pub const OVERLAY_LABEL: &str = "overlay";
@@ -100,24 +99,25 @@ fn initial_position(app: &AppHandle) -> Option<SavedPosition> {
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let mut builder = WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("index.html".into()))
-        .title("Mirioflow Pill")
-        .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        // Never take keyboard focus: the text must keep going into the app
-        // the user is dictating into.
-        .focused(false)
-        .focusable(false)
-        .accept_first_mouse(true)
-        .visible(false);
+    let mut builder =
+        WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("index.html".into()))
+            .title("Mirioflow Pill")
+            .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            .resizable(false)
+            .maximizable(false)
+            .minimizable(false)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .always_on_top(true)
+            .visible_on_all_workspaces(true)
+            .skip_taskbar(true)
+            // Never take keyboard focus: the text must keep going into the app
+            // the user is dictating into.
+            .focused(false)
+            .focusable(false)
+            .accept_first_mouse(true)
+            .visible(false);
     if let Some(position) = initial_position(app) {
         builder = builder.position(position.x, position.y);
     }
@@ -176,8 +176,7 @@ pub mod focus {
 
     fn frontmost_app() -> Option<Retained<AnyObject>> {
         unsafe {
-            let workspace: Retained<AnyObject> =
-                msg_send_id![class!(NSWorkspace), sharedWorkspace];
+            let workspace: Retained<AnyObject> = msg_send_id![class!(NSWorkspace), sharedWorkspace];
             msg_send_id![&workspace, frontmostApplication]
         }
     }
@@ -237,7 +236,10 @@ mod tests {
 
     #[test]
     fn position_on_disconnected_monitor_is_not_visible() {
-        let on_second_screen = SavedPosition { x: 2000.0, y: 400.0 };
+        let on_second_screen = SavedPosition {
+            x: 2000.0,
+            y: 400.0,
+        };
         assert!(!is_visible_on(on_second_screen, &[SCREEN]));
         assert!(is_visible_on(
             on_second_screen,
@@ -249,6 +251,9 @@ mod tests {
     fn saved_position_round_trips_through_json() {
         let position = SavedPosition { x: 12.5, y: 700.0 };
         let json = serde_json::to_string(&position).unwrap();
-        assert_eq!(serde_json::from_str::<SavedPosition>(&json).unwrap(), position);
+        assert_eq!(
+            serde_json::from_str::<SavedPosition>(&json).unwrap(),
+            position
+        );
     }
 }

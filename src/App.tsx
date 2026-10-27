@@ -184,8 +184,8 @@ export default function App() {
     apiKey: string;
     options: LiveModelOptions;
   } | null>(null);
-  const [dictationStats, setDictationStats] = useState<DictationStats>(
-    () => loadDictationStats(localStorage),
+  const [dictationStats, setDictationStats] = useState<DictationStats>(() =>
+    loadDictationStats(localStorage),
   );
   const [funnyHomeMessage, setFunnyHomeMessage] = useState<string>(() =>
     pickFunnyHomeMessage(),
