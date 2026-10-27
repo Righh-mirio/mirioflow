@@ -182,7 +182,7 @@ async fn apply_tray_activity(
         "recording" => {
             let icon = tray_icon_from_bytes(TRAY_ICON_DICTATING)?;
             tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
-            tray.set_tooltip(Some("Saydrop — Dictating…"))
+            tray.set_tooltip(Some("Mirioflow — Dictating…"))
                 .map_err(|e| e.to_string())?;
         }
         "starting" | "finalizing" => {
@@ -196,9 +196,9 @@ async fn apply_tray_activity(
                         if let Ok(tray) = tray_handle(&app_handle) {
                             let _ = tray.set_icon(Some(icon));
                             let tooltip = if starting {
-                                "Saydrop — Starting microphone…"
+                                "Mirioflow — Starting microphone…"
                             } else {
-                                "Saydrop — Finalizing…"
+                                "Mirioflow — Finalizing…"
                             };
                             let _ = tray.set_tooltip(Some(tooltip));
                         }
@@ -212,7 +212,7 @@ async fn apply_tray_activity(
         _ => {
             let icon = tray_icon_from_bytes(TRAY_ICON_IDLE)?;
             tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
-            tray.set_tooltip(Some("Saydrop"))
+            tray.set_tooltip(Some("Mirioflow"))
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -1351,7 +1351,7 @@ fn main() {
             let idle_icon = tray_icon_from_bytes(TRAY_ICON_IDLE)?;
             let _tray = TrayIconBuilder::with_id(TRAY_ID)
                 .icon(idle_icon)
-                .tooltip("Saydrop")
+                .tooltip("Mirioflow")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {

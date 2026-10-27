@@ -80,12 +80,12 @@ const MOCK_HISTORY: TranscriptionHistoryPage = {
   items: [
     {
       id: "1",
-      text: "Saydrop makes dictation feel effortless once permissions and your API key are set up.",
+      text: "Mirioflow makes dictation feel effortless once permissions and your API key are set up.",
       created_at: new Date(Date.now() - 3600000).toISOString(),
     },
     {
       id: "2",
-      text: "Custom vocabulary helps with product names like Saydrop and internal acronyms.",
+      text: "Custom vocabulary helps with product names like Mirioflow and internal acronyms.",
       created_at: new Date(Date.now() - 86400000).toISOString(),
     },
     {

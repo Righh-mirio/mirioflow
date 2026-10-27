@@ -37,7 +37,7 @@ export function accessibilityHelperText(
     case "denied":
     case "not_determined":
     default:
-      return "Open Settings → Privacy & Security → Accessibility and enable Saydrop. Return here when done — permissions update automatically.";
+      return "Open Settings → Privacy & Security → Accessibility and enable Mirioflow. Return here when done — permissions update automatically.";
   }
 }
 

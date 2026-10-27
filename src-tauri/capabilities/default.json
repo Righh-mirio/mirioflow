@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for Saydrop",
+  "description": "Default capabilities for Mirioflow",
   "windows": ["main", "overlay"],
   "permissions": [
     "core:default",

@@ -1762,7 +1762,7 @@ export default function App() {
     return (
       <main className="loading-shell">
         <div className="loading-spinner" />
-        <span className="loading-text">Loading Saydrop</span>
+        <span className="loading-text">Loading Mirioflow</span>
       </main>
     );
   }

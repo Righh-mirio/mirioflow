@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Saydrop needs microphone access to capture your voice for real-time dictation.</string>
+	<string>Mirioflow needs microphone access to capture your voice for real-time dictation.</string>
 </dict>
 </plist>

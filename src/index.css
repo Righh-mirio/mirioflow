@@ -4,7 +4,7 @@
   --bg-card: var(--bg-tertiary);
   --bg-hover: var(--bg-elevated);
   --accent: var(--text-brand);
-  --accent-hover: var(--color-purple-300);
+  --accent-hover: var(--color-orange-300);
   --accent-primary: var(--bg-inverse);
   --accent-glow: transparent;
   --danger: var(--status-error);
@@ -31,7 +31,7 @@
    overridden in gladia-tokens.css; component tweaks are at the end of this
    file under "Light theme surfaces". */
 :root[data-theme="light"] {
-  --accent-hover: var(--color-purple-700);
+  --accent-hover: var(--color-orange-800);
   --divider: color-mix(in srgb, var(--text-primary) 9%, transparent);
   --shadow-dialog:
     0 24px 64px rgba(17, 17, 19, 0.16), 0 2px 8px rgba(17, 17, 19, 0.08);
@@ -123,20 +123,18 @@ textarea {
 }
 
 .logo-wordmark-mark {
-  width: 14px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
 }
 
-.logo-wordmark-drop {
-  fill: var(--text-brand);
+/* The logo keeps its own colours in both themes, like the app icon. */
+.logo-wordmark-badge {
+  fill: var(--color-orange-600);
 }
 
-.logo-wordmark-wave {
-  fill: none;
-  stroke: var(--bg-primary);
-  stroke-width: 1.5;
-  stroke-linecap: round;
+.logo-wordmark-tiger {
+  fill: var(--color-neutral-0);
 }
 
 .logo-wordmark-text {
@@ -2264,6 +2262,13 @@ html.overlay-window body {
 }
 
 /* Hover states whose dark version lightened onto a now-white surface. */
+/* Orange text on an orange tint needs a darker shade and a lighter tint than
+   the dark theme to stay >= 4.5:1. */
+:root[data-theme="light"] :is(.nav-item-active, .nav-item-active:hover) {
+  background: color-mix(in srgb, var(--text-brand) 12%, transparent);
+  color: var(--color-orange-800);
+}
+
 :root[data-theme="light"] .nav-item:hover:not(.nav-item-active) {
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
 }

@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
-  "productName": "Saydrop",
+  "productName": "Mirioflow",
   "version": "0.1.0",
   "identifier": "io.gladia.gladiaflow",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Saydrop",
+        "title": "Mirioflow",
         "width": 800,
         "height": 600,
         "resizable": false,

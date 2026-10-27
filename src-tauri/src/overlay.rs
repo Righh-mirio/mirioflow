@@ -101,7 +101,7 @@ fn initial_position(app: &AppHandle) -> Option<SavedPosition> {
 
 pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let mut builder = WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("index.html".into()))
-        .title("Saydrop Pill")
+        .title("Mirioflow Pill")
         .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
         .resizable(false)
         .maximizable(false)

@@ -14,7 +14,7 @@ describe("loadSavedApiKey", () => {
     expect(failure).toEqual({
       ok: false,
       message:
-        "Saydrop couldn't read your saved settings. Your API key has not been changed.",
+        "Mirioflow couldn't read your saved settings. Your API key has not been changed.",
     });
   });
 
@@ -46,7 +46,7 @@ describe("loadSavedApiKey", () => {
     expect(result).toEqual({
       ok: false,
       message:
-        "Saydrop couldn't reset your settings. Your original settings file was not deleted.",
+        "Mirioflow couldn't reset your settings. Your original settings file was not deleted.",
     });
   });
 });

@@ -1,13 +1,12 @@
-Saydrop is an unofficial fork of GladiaFlow by Gladia. It is not affiliated with or endorsed by Gladia. It runs on the Gladia speech-to-text API.
+Mirioflow is an unofficial fork of [Saydrop](https://github.com/moekoelueker/saydrop), which is itself an unofficial fork of GladiaFlow by Gladia. It is not affiliated with or endorsed by Gladia or by the Saydrop authors. It runs on the Gladia speech-to-text API.
 
 <div align="center">
-  <h1>Saydrop</h1>
+  <h1>Mirioflow</h1>
 
   <p><strong>Fast, accurate voice dictation in any desktop app.</strong></p>
 
   <p>
-    <a href="https://github.com/moekoelueker/saydrop/releases"><img src="https://img.shields.io/github/v/release/moekoelueker/saydrop?display_name=tag" alt="Latest release" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8b5cf6.svg" alt="MIT license" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e2550a.svg" alt="MIT license" /></a>
     <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri 2" />
   </p>
 
@@ -20,12 +19,12 @@ Saydrop is an unofficial fork of GladiaFlow by Gladia. It is not affiliated with
   </p>
 </div>
 
-Saydrop is an open-source desktop app that turns speech into text wherever you type. Hold a hotkey, speak, and the app streams your microphone to the [Gladia Live Transcription API](https://docs.gladia.io/), cleans the result, and pastes it into the focused application.
+Mirioflow is an open-source desktop app that turns speech into text wherever you type. Hold a hotkey, speak, and the app streams your microphone to the [Gladia Live Transcription API](https://docs.gladia.io/), cleans the result, and pastes it into the focused application.
 
 > [!NOTE]
-> Saydrop currently supports macOS and Windows. A [Gladia API key](https://app.gladia.io/) is required.
+> Mirioflow currently supports macOS and Windows. A [Gladia API key](https://app.gladia.io/) is required.
 
-## Why Saydrop?
+## Why Mirioflow?
 
 - **Dictate anywhere** — paste transcribed speech into editors, browsers, chat apps, and more.
 - **See results live** — partial and final transcripts arrive over a low-latency WebSocket session.
@@ -37,10 +36,10 @@ Saydrop is an open-source desktop app that turns speech into text wherever you t
 
 ## Quick start
 
-Download the latest installer from [GitHub Releases](https://github.com/moekoelueker/saydrop/releases), then:
+Mirioflow has no published installers yet. Build one with `npm run tauri:build` (see [Building and releasing](#building-and-releasing)), then:
 
-1. Launch Saydrop and enter your [Gladia API key](https://app.gladia.io/).
-2. Grant microphone access. On macOS, also grant Accessibility access so Saydrop can paste into other apps.
+1. Launch Mirioflow and enter your [Gladia API key](https://app.gladia.io/).
+2. Grant microphone access. On macOS, also grant Accessibility access so Mirioflow can paste into other apps.
 3. Focus any text field and use the activation shortcut:
    - **macOS:** hold <kbd>Fn</kbd> / <kbd>Globe</kbd>
    - **Windows:** hold <kbd>Ctrl</kbd> + <kbd>Space</kbd>
@@ -62,13 +61,15 @@ Windows development also requires the Microsoft C++ Build Tools and WebView2. We
 ### Run locally
 
 ```bash
-git clone https://github.com/moekoelueker/saydrop.git
-cd saydrop
+cd mirioflow
 npm ci
 npm run tauri:dev
 ```
 
 The last command starts Vite, opens the Tauri application, and enables frontend and Rust hot reload. Enter your API key through the onboarding screen; no `.env` file is needed.
+
+> [!TIP]
+> On Windows, if Vite stops with `EBUSY` while Rust is compiling, start the app from PowerShell with `$env:CHOKIDAR_USEPOLLING="true"; npm run tauri:dev`. Vite then polls for changes instead of holding files that Cargo is writing.
 
 > [!TIP]
 > Run `npm run dev` when you only need the browser-based frontend. Native audio, global shortcuts, clipboard access, and Tauri commands require `npm run tauri:dev`.
@@ -155,11 +156,11 @@ The release workflow runs for tags matching `v*`, stamps the tag version into th
 
 ## Privacy and data handling
 
-Saydrop is a local desktop client. It does not operate its own cloud backend for dictation. When you dictate, microphone audio is sent to Gladia’s Live Transcription API, which is the sole remote processor for that audio.
+Mirioflow is a local desktop client. It does not operate its own cloud backend for dictation. When you dictate, microphone audio is sent to Gladia’s Live Transcription API, which is the sole remote processor for that audio.
 
 | Data | What happens |
 | --- | --- |
-| Microphone audio | During an active dictation session, PCM audio is streamed over WebSocket to the Gladia Live Transcription API. Saydrop does not save audio files locally. |
+| Microphone audio | During an active dictation session, PCM audio is streamed over WebSocket to the Gladia Live Transcription API. Mirioflow does not save audio files locally. |
 | Transcripts | Text returns from Gladia. Cleaned transcript text and the Gladia session ID are stored locally in SQLite (`history.db` in the app config directory). |
 | Settings and API key | Stored locally in `config.json` in the user config directory (API key, hotkey, languages, custom vocabulary, and related preferences). |
 | Clipboard | Used transiently to paste transcribed text into the focused app. An optional setting can leave the final transcript on the clipboard. |
@@ -169,7 +170,7 @@ Audio and transcripts processed by Gladia are subject to Gladia’s own policies
 - [Privacy notice](https://www.gladia.io/privacy-notice)
 - [Terms & conditions](https://www.gladia.io/terms-conditions)
 
-Those documents cover retention, subprocessors, and related platform practices. For how Saydrop stores data on your machine, see also [SECURITY.md](SECURITY.md).
+Those documents cover retention, subprocessors, and related platform practices. For how Mirioflow stores data on your machine, see also [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
@@ -179,4 +180,4 @@ To report a security vulnerability privately, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-Saydrop is available under the [MIT License](LICENSE). See [TRADEMARKS.md](TRADEMARKS.md) for brand and logo restrictions.
+Mirioflow is available under the [MIT License](LICENSE). See [TRADEMARKS.md](TRADEMARKS.md) for brand and logo restrictions.

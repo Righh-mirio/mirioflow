@@ -297,20 +297,20 @@ impl GladiaClient {
                 .filter_map(|entry| entry.language.as_deref())
                 .collect();
             log::info!(
-                "[saydrop] Live session custom vocabulary: {} entries ({} unique terms) across languages {:?}",
+                "[mirioflow] Live session custom vocabulary: {} entries ({} unique terms) across languages {:?}",
                 vocab.len(),
                 unique_terms.len(),
                 languages
             );
         } else {
-            log::info!("[saydrop] Live session request has no custom vocabulary");
+            log::info!("[mirioflow] Live session request has no custom vocabulary");
         }
 
         let client = reqwest::Client::new();
         let response = client
             .post(format!("https://api.gladia.io/v2/live?region={region}"))
             .header("x-gladia-key", api_key)
-            .header("x-gladia-version", format!("Saydrop/{}", env!("CARGO_PKG_VERSION")))
+            .header("x-gladia-version", format!("Mirioflow/{}", env!("CARGO_PKG_VERSION")))
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -466,7 +466,7 @@ impl GladiaClient {
         let response = client
             .get("https://api.gladia.io/v2/pre-recorded?limit=1")
             .header("x-gladia-key", api_key)
-            .header("x-gladia-version", format!("Saydrop/{}", env!("CARGO_PKG_VERSION")))
+            .header("x-gladia-version", format!("Mirioflow/{}", env!("CARGO_PKG_VERSION")))
             .send()
             .await?;
 

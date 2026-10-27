@@ -1,21 +1,20 @@
-# Contributing to GladiaFlow
+# Contributing to Mirioflow
 
-Thanks for helping improve GladiaFlow. Bug fixes, platform work, documentation, and focused feature proposals are all welcome.
+Thanks for helping improve Mirioflow, an unofficial fork of Saydrop and GladiaFlow (see the [README](README.md)). Bug fixes, platform work, documentation, and focused feature proposals are all welcome.
 
 ## Before you start
 
 - Read the [README](README.md) for product overview, setup, and architecture.
-- For larger changes, [open an issue](https://github.com/gladiaio/gladiaflow/issues) first so the design can be discussed before implementation.
+- For larger changes, open an issue in this repository first so the design can be discussed before implementation.
 - On macOS, Accessibility grants are tied to the app's code-signing identity. Changing the release signing certificate can require users to re-grant Accessibility.
 
 ## Development setup
 
 1. Install [Node.js](https://nodejs.org/) 20.19+, [Rust](https://www.rust-lang.org/tools/install) stable, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
-2. Clone the repo, install dependencies, and start the desktop app:
+2. From your copy of this repository, install dependencies and start the desktop app:
 
 ```bash
-git clone https://github.com/gladiaio/gladiaflow.git
-cd gladiaflow
+cd mirioflow
 npm ci
 npm run tauri:dev
 ```

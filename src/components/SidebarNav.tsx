@@ -1,4 +1,4 @@
-import { SaydropWordmark } from "./SaydropWordmark";
+import { MirioflowWordmark } from "./MirioflowWordmark";
 import { AppIcon } from "./AppIcon";
 
 export type NavScreen =
@@ -30,7 +30,7 @@ export function SidebarNav({
   return (
     <aside className="sidebar">
       <div className="logo">
-        <SaydropWordmark />
+        <MirioflowWordmark />
       </div>
       <nav className="nav">
         {NAV_ITEMS.map((item) => (

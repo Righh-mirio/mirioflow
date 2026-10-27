@@ -40,14 +40,14 @@
   --color-neutral-900: #0c0c0c;
   --color-neutral-1000: #000000;
 
-  /* Primitives — purple */
-  --color-purple-100: #ede9fe;
-  --color-purple-200: #beb4ff;
-  --color-purple-300: #a87cff;
-  --color-purple-400: #947afc;
-  --color-purple-500: #925bff;
-  --color-purple-600: #7c3aed;
-  --color-purple-700: #6d28d9;
+  /* Primitives — orange (Mirioflow brand; 600 is the logo background) */
+  --color-orange-100: #ffedd5;
+  --color-orange-200: #fed7aa;
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-600: #e2550a;
+  --color-orange-700: #c2410c;
+  --color-orange-800: #9a3412;
 
   /* Primitives — accent palette */
   --color-blue-400: #1a9eff;
@@ -73,7 +73,7 @@
   --text-tertiary: #909090;
   --text-inverse: var(--color-neutral-1000);
   --text-link: var(--color-neutral-300);
-  --text-brand: var(--color-purple-400);
+  --text-brand: var(--color-orange-400);
 
   /* Semantic — background */
   --bg-primary: var(--color-neutral-1000);
@@ -91,7 +91,7 @@
   --border-transparent: var(--alpha-white-12);
   --border-active: var(--alpha-white-24);
   --border-focus: var(--color-blue-400);
-  --border-brand: var(--color-purple-400);
+  --border-brand: var(--color-orange-400);
 
   /* Semantic — status */
   --status-success: var(--color-green-500);
@@ -174,7 +174,7 @@
   --text-tertiary: #67676f;
   --text-inverse: var(--color-neutral-0);
   --text-link: #3a3a40;
-  --text-brand: #6231d0;
+  --text-brand: var(--color-orange-700);
 
   /* Semantic — background: off-white page, white cards, soft grey insets */
   --bg-primary: #f1f1f2;
@@ -192,7 +192,7 @@
   --border-transparent: rgba(17, 17, 19, 0.08);
   --border-active: rgba(17, 17, 19, 0.24);
   --border-focus: #0a6fd6;
-  --border-brand: #6231d0;
+  --border-brand: var(--color-orange-700);
 
   /* Semantic — status (darkened to stay >= 4.5:1 on white and tints) */
   --status-success: #13703a;
