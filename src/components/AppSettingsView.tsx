@@ -1,10 +1,15 @@
-import type { AppSettings, AudioDeviceInfo } from "../types";
+import type {
+  AppSettings,
+  AudioDeviceInfo,
+  ApiBaseUrlSettings,
+} from "../types";
 import {
   formatKeySymbol,
   sortKeys,
   parseHotkeyParts,
 } from "../lib/keyboardUtils";
-import { InfoTooltip } from "./InfoTooltip";
+import { ApiBaseUrlField } from "./ApiBaseUrlField";
+import { SettingsGroup, SettingsItem } from "./SettingsList";
 import { SettingsPageLayout } from "./SettingsPageLayout";
 import { ThemeSetting } from "./ThemeSetting";
 
@@ -30,10 +35,11 @@ export function AppSettingsView({
   saveCapture,
   handleResetHotkey,
   defaultHotkey,
-  isMac,
   permissions,
   region,
   version,
+  apiBaseUrlSettings,
+  onSaveApiBaseUrl,
   onDone,
   onOpenLogs,
 }: {
@@ -61,10 +67,11 @@ export function AppSettingsView({
   saveCapture: () => void;
   handleResetHotkey: () => void;
   defaultHotkey: string;
-  isMac: boolean;
   permissions: { hotkeyError: string | null };
   region: string;
   version: string;
+  apiBaseUrlSettings: ApiBaseUrlSettings | null;
+  onSaveApiBaseUrl: (apiBaseUrl: string | null) => Promise<void>;
   onDone: () => void;
   onOpenLogs: () => void;
 }) {
@@ -76,6 +83,9 @@ export function AppSettingsView({
     ));
 
   const regionLabel = region || null;
+  const customApiHost = apiBaseUrlSettings?.apiBaseUrl
+    ? apiBaseUrlSettings.apiBaseUrl.replace(/^https?:\/\//, "")
+    : null;
 
   const currentHotkeyParts = parseHotkeyParts(settings.hotkey);
   const defaultDevice = audioDevices.find((device) => device.isDefault);
@@ -88,28 +98,22 @@ export function AppSettingsView({
   return (
     <SettingsPageLayout
       title="App settings"
-      footer={
-        <p className="settings-region-footer">
-          {regionLabel ? `Region: ${regionLabel} · ` : ""}
-          {version ? `v${version}` : ""}
-        </p>
-      }
+      onDone={onDone}
+      footer={[
+        regionLabel && `Region: ${regionLabel}`,
+        customApiHost && `API: ${customApiHost}`,
+        version && `v${version}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
     >
-      <div className="settings-row">
-        <div className="form-group">
-          <label className="form-label">
-            Trigger key
-            <InfoTooltip label="Shortcut rules">
-              <strong>Rules for setting a shortcut:</strong>
-              <ul>
-                <li>A modifier (⌘ ⌃ ⌥ ⇧) + a regular key</li>
-                {isMac && (
-                  <li>A single modifier (left and right are distinct)</li>
-                )}
-                <li>Press Escape to cancel</li>
-              </ul>
-            </InfoTooltip>
-          </label>
+      <SettingsGroup title="Dictation">
+        <SettingsItem
+          label="Trigger key"
+          description="Starts a dictation"
+          error={permissions.hotkeyError}
+          wide
+        >
           <div
             className={`shortcut-recorder${isCapturing ? " recording" : ""}`}
           >
@@ -159,14 +163,13 @@ export function AppSettingsView({
               </>
             )}
           </div>
-          {permissions.hotkeyError && (
-            <p className="form-footnote form-footnote--danger">
-              {permissions.hotkeyError}
-            </p>
-          )}
-        </div>
-        <div className="form-group">
-          <label className="form-label">Activation mode</label>
+        </SettingsItem>
+
+        <SettingsItem
+          label="Activation mode"
+          description="Hold to talk, or press to toggle"
+          wide
+        >
           <div
             className={`multi-select ${activationDropdownOpen ? "open" : ""}`}
             ref={activationDropdownRef}
@@ -212,19 +215,101 @@ export function AppSettingsView({
               </div>
             )}
           </div>
-        </div>
-      </div>
+        </SettingsItem>
 
-      <div className="settings-row">
-        <div className="form-group">
-          <label className="form-label">
-            Copy to clipboard
-            <InfoTooltip label="About copy to clipboard">
-              <strong>Copy to clipboard</strong>
-              When on, the full transcription is left on your clipboard after
-              each dictation.
-            </InfoTooltip>
-          </label>
+        <SettingsItem
+          label="Microphone"
+          description="The built-in microphone works best"
+          wide
+        >
+          <div
+            className={`multi-select ${audioDeviceDropdownOpen ? "open" : ""}`}
+            ref={audioDeviceDropdownRef}
+          >
+            <button
+              type="button"
+              className="form-input multi-select-trigger"
+              onClick={() => {
+                if (audioDeviceDropdownOpen) {
+                  setAudioDeviceDropdownOpen(false);
+                } else {
+                  handleOpenDropdown("audioDevice");
+                }
+              }}
+              aria-haspopup="listbox"
+              aria-expanded={audioDeviceDropdownOpen}
+            >
+              <span>{selectedAudioDeviceLabel}</span>
+            </button>
+            {audioDeviceDropdownOpen && (
+              <div className="multi-select-dropdown">
+                <div className="multi-select-options" role="listbox">
+                  <button
+                    type="button"
+                    className={`dropdown-option ${settings.audioDeviceSelection.mode === "automatic" ? "selected" : ""}`}
+                    onClick={() => {
+                      setSettings({
+                        ...settings,
+                        audioDevice: "",
+                        audioDeviceSelection: { mode: "automatic" },
+                      });
+                      setAudioDeviceDropdownOpen(false);
+                    }}
+                  >
+                    Recommended
+                    {automaticDevice ? ` (${automaticDevice.name})` : ""}
+                  </button>
+                  <button
+                    type="button"
+                    className={`dropdown-option ${settings.audioDeviceSelection.mode === "system_default" ? "selected" : ""}`}
+                    onClick={() => {
+                      setSettings({
+                        ...settings,
+                        audioDevice: "",
+                        audioDeviceSelection: { mode: "system_default" },
+                      });
+                      setAudioDeviceDropdownOpen(false);
+                    }}
+                  >
+                    System Default
+                    {defaultDevice ? ` (${defaultDevice.name})` : ""}
+                  </button>
+                  {audioDevices.map((device) => {
+                    const selected =
+                      settings.audioDeviceSelection.mode === "specific" &&
+                      settings.audioDeviceSelection.device_id === device.id;
+                    return (
+                      <button
+                        key={device.id || device.name}
+                        type="button"
+                        className={`dropdown-option ${selected ? "selected" : ""}`}
+                        onClick={() => {
+                          setSettings({
+                            ...settings,
+                            audioDevice: device.name,
+                            audioDeviceSelection: {
+                              mode: "specific",
+                              device_id: device.id,
+                              device_name: device.name,
+                            },
+                          });
+                          setAudioDeviceDropdownOpen(false);
+                        }}
+                      >
+                        {device.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </SettingsItem>
+
+        <SettingsItem
+          label="Copy to clipboard"
+          description="Keep the transcript after dictating"
+        >
           <label className="toggle-switch" title="Copy to clipboard">
             <input
               type="checkbox"
@@ -238,121 +323,34 @@ export function AppSettingsView({
             />
             <span className="toggle-slider" />
           </label>
-        </div>
-        <ThemeSetting />
-      </div>
+        </SettingsItem>
+      </SettingsGroup>
 
-      <div className="form-group">
-        <label className="form-label">
-          Input audio device
-          <InfoTooltip label="About input audio devices">
-            Use built-in microphone for an optimal experience
-          </InfoTooltip>
-        </label>
-        <div
-          className={`multi-select ${audioDeviceDropdownOpen ? "open" : ""}`}
-          ref={audioDeviceDropdownRef}
+      <SettingsGroup title="Appearance">
+        <ThemeSetting />
+      </SettingsGroup>
+
+      <SettingsGroup title="Advanced" collapsible>
+        <SettingsItem
+          label="Logs"
+          description="Share the log file if transcription fails"
         >
           <button
             type="button"
-            className="form-input multi-select-trigger"
-            onClick={() => {
-              if (audioDeviceDropdownOpen) {
-                setAudioDeviceDropdownOpen(false);
-              } else {
-                handleOpenDropdown("audioDevice");
-              }
-            }}
-            aria-haspopup="listbox"
-            aria-expanded={audioDeviceDropdownOpen}
+            className="btn btn-ghost btn-sm"
+            onClick={onOpenLogs}
           >
-            <span>{selectedAudioDeviceLabel}</span>
+            Open logs folder
           </button>
-          {audioDeviceDropdownOpen && (
-            <div className="multi-select-dropdown">
-              <div className="multi-select-options" role="listbox">
-                <button
-                  type="button"
-                  className={`dropdown-option ${settings.audioDeviceSelection.mode === "automatic" ? "selected" : ""}`}
-                  onClick={() => {
-                    setSettings({
-                      ...settings,
-                      audioDevice: "",
-                      audioDeviceSelection: { mode: "automatic" },
-                    });
-                    setAudioDeviceDropdownOpen(false);
-                  }}
-                >
-                  Recommended
-                  {automaticDevice ? ` (${automaticDevice.name})` : ""}
-                </button>
-                <button
-                  type="button"
-                  className={`dropdown-option ${settings.audioDeviceSelection.mode === "system_default" ? "selected" : ""}`}
-                  onClick={() => {
-                    setSettings({
-                      ...settings,
-                      audioDevice: "",
-                      audioDeviceSelection: { mode: "system_default" },
-                    });
-                    setAudioDeviceDropdownOpen(false);
-                  }}
-                >
-                  System Default
-                  {defaultDevice ? ` (${defaultDevice.name})` : ""}
-                </button>
-                {audioDevices.map((device) => {
-                  const selected =
-                    settings.audioDeviceSelection.mode === "specific" &&
-                    settings.audioDeviceSelection.device_id === device.id;
-                  return (
-                    <button
-                      key={device.id || device.name}
-                      type="button"
-                      className={`dropdown-option ${selected ? "selected" : ""}`}
-                      onClick={() => {
-                        setSettings({
-                          ...settings,
-                          audioDevice: device.name,
-                          audioDeviceSelection: {
-                            mode: "specific",
-                            device_id: device.id,
-                            device_name: device.name,
-                          },
-                        });
-                        setAudioDeviceDropdownOpen(false);
-                      }}
-                    >
-                      {device.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+        </SettingsItem>
 
-      <div className="form-group">
-        <label className="form-label">Diagnostics</label>
-        <p className="setup-desc setup-desc--tight">
-          If transcription fails, open the logs folder and share the log file so
-          the issue can be analyzed.
-        </p>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={onOpenLogs}
-        >
-          Open logs folder
-        </button>
-      </div>
-
-      <div className="setup-nav setup-nav-center">
-        <button className="btn btn-primary" onClick={onDone}>
-          Done
-        </button>
-      </div>
+        {apiBaseUrlSettings && (
+          <ApiBaseUrlField
+            apiBaseUrlSettings={apiBaseUrlSettings}
+            onSaveApiBaseUrl={onSaveApiBaseUrl}
+          />
+        )}
+      </SettingsGroup>
     </SettingsPageLayout>
   );
 }

@@ -5,6 +5,7 @@ import {
   setThemePreference,
   type ThemePreference,
 } from "../lib/theme";
+import { SettingsItem } from "./SettingsList";
 
 /** Current theme preference plus a setter that saves and applies it. */
 export function useThemePreference(): [
@@ -22,8 +23,8 @@ export function useThemePreference(): [
 }
 
 /**
- * Self-contained "Theme" setting (System / Light / Dark). Uses the same
- * dropdown markup and classes as the other settings dropdowns.
+ * Self-contained "Theme" settings row (System / Light / Dark). Uses the same
+ * row and dropdown markup as the other settings list items.
  */
 export function ThemeSetting() {
   const [preference, setPreference] = useThemePreference();
@@ -51,27 +52,30 @@ export function ThemeSetting() {
     "System";
 
   return (
-    <div className="form-group">
-      <label className="form-label" id="theme-setting-label">
-        Theme
-      </label>
+    <SettingsItem
+      label="Theme"
+      description="System follows your OS setting"
+      htmlFor="theme-setting-trigger"
+      wide
+    >
       <div className={`multi-select ${open ? "open" : ""}`} ref={ref}>
         <button
+          id="theme-setting-trigger"
           type="button"
           className="form-input multi-select-trigger"
           onClick={() => setOpen(!open)}
           aria-haspopup="listbox"
           aria-expanded={open}
-          aria-labelledby="theme-setting-label theme-setting-value"
+          aria-label={`Theme: ${selectedLabel}`}
         >
-          <span id="theme-setting-value">{selectedLabel}</span>
+          <span>{selectedLabel}</span>
         </button>
         {open && (
           <div className="multi-select-dropdown">
             <div
               className="multi-select-options"
               role="listbox"
-              aria-labelledby="theme-setting-label"
+              aria-label="Theme"
             >
               {THEME_OPTIONS.map((option) => {
                 const selected = preference === option.value;
@@ -95,6 +99,6 @@ export function ThemeSetting() {
           </div>
         )}
       </div>
-    </div>
+    </SettingsItem>
   );
 }

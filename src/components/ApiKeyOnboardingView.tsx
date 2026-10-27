@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ApiBaseUrlSettings } from "../types";
 import { ApiKeyField } from "./ApiKeyField";
+import { ApiBaseUrlField } from "./ApiBaseUrlField";
 
 const API_KEYS_URL = "https://app.gladia.io/apikeys";
 
@@ -9,12 +11,18 @@ export function ApiKeyOnboardingView({
   isTesting,
   onChangeKey,
   onSave,
+  error,
+  apiBaseUrlSettings,
+  onSaveApiBaseUrl,
 }: {
   displayValue: string;
   isLocked: boolean;
   isTesting: boolean;
   onChangeKey: (v: string) => void;
   onSave: () => void;
+  error: string | null;
+  apiBaseUrlSettings: ApiBaseUrlSettings | null;
+  onSaveApiBaseUrl: (apiBaseUrl: string | null) => Promise<void>;
 }) {
   return (
     <div className="setup-step setup-step-center">
@@ -27,6 +35,7 @@ export function ApiKeyOnboardingView({
           isTesting={isTesting}
           onChangeKey={onChangeKey}
           onSave={onSave}
+          error={error}
           secondaryAction={
             <button
               type="button"
@@ -40,6 +49,18 @@ export function ApiKeyOnboardingView({
           }
         />
       </div>
+      {apiBaseUrlSettings && (
+        <details
+          className="home-api-spoiler onboarding-developer-spoiler"
+          open={apiBaseUrlSettings.apiBaseUrl ? true : undefined}
+        >
+          <summary>Developer settings</summary>
+          <ApiBaseUrlField
+            apiBaseUrlSettings={apiBaseUrlSettings}
+            onSaveApiBaseUrl={onSaveApiBaseUrl}
+          />
+        </details>
+      )}
     </div>
   );
 }

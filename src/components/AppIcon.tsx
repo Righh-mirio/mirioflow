@@ -1,10 +1,5 @@
 type AppIconName =
-  | "home"
-  | "history"
-  | "book"
-  | "microphone"
-  | "settings"
-  | "keyboard";
+  "home" | "history" | "book" | "microphone" | "settings" | "keyboard";
 
 const ICON_PATHS: Record<
   AppIconName,

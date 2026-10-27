@@ -2,11 +2,7 @@ import { MirioflowWordmark } from "./MirioflowWordmark";
 import { AppIcon } from "./AppIcon";
 
 export type NavScreen =
-  | "home"
-  | "vocabulary"
-  | "dictation"
-  | "history"
-  | "settings";
+  "home" | "vocabulary" | "dictation" | "history" | "settings";
 
 const NAV_ITEMS: Array<{
   id: NavScreen;

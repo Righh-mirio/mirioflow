@@ -17,6 +17,8 @@ mod gladia;
 mod history;
 mod hotkey;
 mod hotkey_layout;
+mod keystrokes;
+mod live_typing;
 mod overlay;
 mod permissions;
 mod region;
@@ -63,6 +65,9 @@ pub struct AppState {
     pub hotkey_manager: Arc<TokioMutex<HotkeyManager>>,
     pub recording_state: Arc<TokioMutex<RecordingState>>,
     pub subscription_active: Arc<std::sync::atomic::AtomicBool>,
+    /// Set while a dictation runs, cleared by `stop_dictation`: in
+    /// push-to-talk, whether the trigger key is still down.
+    pub dictation_key_held: Arc<std::sync::atomic::AtomicBool>,
     pub audio_sender: Arc<TokioMutex<Option<tokio::task::JoinHandle<()>>>>,
     pub tray_animation: Arc<TokioMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     pub region: &'static str,
@@ -263,11 +268,15 @@ async fn init_gladia_session(
         .await
         .map_err(|error| format!("Failed to join audio preparation task: {error}"))?
         .map_err(|error| error.to_string())?;
+    let endpoint = gladia::ApiEndpoint::new(config::api_base_url()?, state.region);
+    let model = config::live_model()?;
     log::info!(
-        "initialising Gladia session (region={}, sample_rate={}, code_switching={})",
-        state.region,
+        "initialising Gladia session (region={}, sample_rate={}, code_switching={}, api_base_url={}, model={})",
+        endpoint.region.as_deref().unwrap_or("from host"),
         sample_rate,
-        code_switching.unwrap_or(false)
+        code_switching.unwrap_or(false),
+        endpoint.base_url,
+        model.as_deref().unwrap_or("default")
     );
     let gladia = state.gladia.lock().await;
     gladia.set_audio_format(sample_rate, 1, 16).await;
@@ -286,8 +295,23 @@ async fn init_gladia_session(
             code_switching.unwrap_or(false),
             custom_vocabulary,
             endpointing,
-            state.region,
+            model,
+            &endpoint,
         )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The live models the current API base URL offers `api_key`.
+#[tauri::command]
+async fn list_live_models(
+    api_key: String,
+    state: State<'_, AppState>,
+) -> Result<gladia::LiveModels, String> {
+    let api_base_url = config::api_base_url()?;
+    let gladia = state.gladia.lock().await.clone();
+    gladia
+        .list_live_models(&api_key, &api_base_url)
         .await
         .map_err(|e| e.to_string())
 }
@@ -297,9 +321,10 @@ async fn test_gladia_connection(
     api_key: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    let api_base_url = config::api_base_url()?;
     let gladia = state.gladia.lock().await;
     gladia
-        .test_connection(&api_key)
+        .test_connection(&api_key, &api_base_url)
         .await
         .map_err(|e| e.to_string())
 }
@@ -476,6 +501,8 @@ async fn subscribe_to_transcriptions(
     };
 
     let active = state.subscription_active.clone();
+    let key_held = state.dictation_key_held.clone();
+    key_held.store(true, Ordering::SeqCst);
     spawn(async move {
         let mut cleaner = utterance_cleaner::UtteranceCleaner::new();
         // When enabled, the final transcription is left on the clipboard at
@@ -484,14 +511,43 @@ async fn subscribe_to_transcriptions(
             log::error!("[config] failed to load copy-to-clipboard setting; using false: {error}");
             false
         });
+        let live = config::live_typing().unwrap_or_else(|error| {
+            log::error!("[config] failed to load live-typing setting; using false: {error}");
+            false
+        });
         let mut final_transcript: Option<String> = None;
-        // Snapshot the user's clipboard once so it can be restored at session end.
-        let original_clipboard = clipboard_get();
 
-        // A dedicated worker thread serialises pastes so the recv loop never
-        // blocks on the ~250ms paste round-trip and fragments land in order.
-        // The worker restores the user's clipboard once, after it drains.
-        let (paste_tx, paste_worker_handle) = {
+        // Live typing: a dedicated thread types the newest target (finals so
+        // far + the open partial) and never touches the clipboard.
+        let mut provisional = live_typing::Provisional::default();
+        let (live_tx, live_worker_handle) = if live {
+            // On Windows, keys sent while a held modifier is down combine
+            // with it, so edits wait for the trigger key's release.
+            let hold_edits = cfg!(target_os = "windows")
+                && config::held_hotkey()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|hotkey| live_typing::hotkey_holds_modifier(&hotkey));
+            log::info!("[live-typing] on (edits wait for key release: {hold_edits})");
+            let (tx, rx) = std::sync::mpsc::channel::<live_typing::Target>();
+            let handle = std::thread::spawn(move || {
+                let held = hold_edits.then_some(&*key_held);
+                live_typing::run(rx, &mut live_typing::SystemKeyboard, held)
+            });
+            (Some(tx), Some(handle))
+        } else {
+            (None, None)
+        };
+
+        // Otherwise a dedicated worker thread serialises pastes so the recv
+        // loop never blocks on the ~250ms paste round-trip and fragments land
+        // in order. The worker restores the user's clipboard once, after it
+        // drains.
+        let (paste_tx, paste_worker_handle) = if live {
+            (None, None)
+        } else {
+            // Snapshot the user's clipboard once so it can be restored at session end.
+            let original_clipboard = clipboard_get();
             let (tx, paste_rx) = std::sync::mpsc::channel::<String>();
             let restore_clip = original_clipboard.clone();
             let handle = std::thread::spawn(move || {
@@ -503,7 +559,7 @@ async fn subscribe_to_transcriptions(
                     // Brief pause before the keystroke, then let the paste land
                     // before the next fragment overwrites the clipboard.
                     std::thread::sleep(std::time::Duration::from_millis(5));
-                    if let Err(e) = send_paste_keystroke() {
+                    if let Err(e) = keystrokes::send_paste() {
                         log::error!("[paste] keystroke failed: {e}");
                     }
                     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -514,7 +570,7 @@ async fn subscribe_to_transcriptions(
                     Err(e) => log::warn!("[paste] failed to restore clipboard: {e}"),
                 }
             });
-            (tx, handle)
+            (Some(tx), Some(handle))
         };
 
         // Per-session counters for lifecycle logging (text content is never logged).
@@ -528,7 +584,12 @@ async fn subscribe_to_transcriptions(
                     log::error!("[transcription] error: {message}");
                     let _ = app_handle.emit("transcription-error", message);
                 }
-                gladia::TranscriptionEvent::Partial(text) => {
+                gladia::TranscriptionEvent::Partial {
+                    id,
+                    text,
+                    start,
+                    end,
+                } => {
                     partial_count += 1;
                     if partial_count == 1 {
                         log::info!(
@@ -536,19 +597,39 @@ async fn subscribe_to_transcriptions(
                             text.chars().count()
                         );
                     }
+                    if let Some(tx) = &live_tx {
+                        if provisional.partial(id, &text, start, end) {
+                            let _ = tx.send(live_typing::Target::new(&cleaner, &provisional));
+                        }
+                    }
                     let _ = app_handle.emit("transcription-partial", text);
                 }
-                gladia::TranscriptionEvent::Final { text, start, end } => {
+                gladia::TranscriptionEvent::Final {
+                    id,
+                    text,
+                    start,
+                    end,
+                } => {
                     final_count += 1;
-                    let fragment = cleaner.process_final(&text, start, end);
+                    // Live typing keeps the sentence boundary it already
+                    // typed when the partial carried no start of its own.
+                    let clean_start = if live_tx.is_some() {
+                        provisional.final_start(id.as_ref(), start, cleaner.last_final_end())
+                    } else {
+                        start
+                    };
+                    let fragment = cleaner.process_final(&text, clean_start, end);
                     log::info!(
                         "[transcription] final #{final_count} [{start:.2}s-{end:.2}s] ({} chars, transcript now {} chars)",
                         text.chars().count(),
                         cleaner.accumulated_text().chars().count()
                     );
-                    // Paste just the newly appended fragment as we go.
-                    if let Some(frag) = fragment {
-                        let _ = paste_tx.send(frag);
+                    if let Some(tx) = &live_tx {
+                        provisional.finalized(id);
+                        let _ = tx.send(live_typing::Target::new(&cleaner, &provisional));
+                    } else if let (Some(tx), Some(frag)) = (&paste_tx, fragment) {
+                        // Paste just the newly appended fragment as we go.
+                        let _ = tx.send(frag);
                     }
                     let _ = app_handle
                         .emit("transcription-final", cleaner.accumulated_text().to_owned());
@@ -580,9 +661,10 @@ async fn subscribe_to_transcriptions(
                         log::warn!("[history] no session id; transcription not saved");
                     }
 
-                    // Queue the deferred final period before signaling the frontend.
-                    if let Some(p) = last_period {
-                        let _ = paste_tx.send(p.to_string());
+                    // Queue the deferred final period before signaling the frontend
+                    // (live typing gets it with the last target, below).
+                    if let (Some(tx), Some(p)) = (&paste_tx, last_period) {
+                        let _ = tx.send(p.to_string());
                     }
 
                     // Gladia has finalized; the frontend can close the session while
@@ -592,21 +674,54 @@ async fn subscribe_to_transcriptions(
                 }
             }
         }
+        // Live typing ends on the cleaned transcript: a partial left without
+        // its final (session error, lost connection) is erased.
+        if let Some(tx) = live_tx {
+            provisional.clear();
+            let _ = tx.send(live_typing::Target::new(&cleaner, &provisional));
+        }
         // Drop the sender so the paste worker drains its queue and restores
         // the clipboard, including when the loop ends without a SessionEnded event.
         drop(paste_tx);
-        if let Err(e) = tokio::task::spawn_blocking(move || {
-            if let Err(join_err) = paste_worker_handle.join() {
-                log::warn!("[paste] worker thread panicked: {join_err:?}");
+        if let Some(handle) = paste_worker_handle {
+            if let Err(e) = tokio::task::spawn_blocking(move || {
+                if let Err(join_err) = handle.join() {
+                    log::warn!("[paste] worker thread panicked: {join_err:?}");
+                }
+            })
+            .await
+            {
+                log::warn!("[paste] failed to join paste worker: {e}");
             }
-        })
-        .await
-        {
-            log::warn!("[paste] failed to join paste worker: {e}");
+        }
+        let mut live_typing_incomplete = false;
+        if let Some(handle) = live_worker_handle {
+            match tokio::task::spawn_blocking(move || handle.join()).await {
+                Ok(Ok(report)) => {
+                    log::info!(
+                        "[live-typing] {} targets, {} edits, {} backspaces, {} typed",
+                        report.targets,
+                        report.edits,
+                        report.backspaces,
+                        report.typed
+                    );
+                    if let Some(reason) = report.stopped {
+                        log::warn!("[live-typing] stopped early: {reason}");
+                        live_typing_incomplete = true;
+                    }
+                }
+                Ok(Err(join_err)) => {
+                    log::warn!("[live-typing] worker thread panicked: {join_err:?}");
+                    live_typing_incomplete = true;
+                }
+                Err(e) => log::warn!("[live-typing] failed to join worker: {e}"),
+            }
         }
         // The worker has restored the original clipboard by now; if the user
-        // opted in, overwrite it with the final transcription instead.
-        if copy_to_clipboard {
+        // opted in, overwrite it with the final transcription instead. When
+        // live typing stopped early, the focused app is missing part of the
+        // dictation, so the whole of it is left on the clipboard.
+        if copy_to_clipboard || live_typing_incomplete {
             if let Some(text) = final_transcript.filter(|t| !t.is_empty()) {
                 match clipboard_set(&text) {
                     Ok(()) => log::info!("[paste] final transcription left on clipboard"),
@@ -853,6 +968,9 @@ async fn stop_audio_capture(state: State<'_, AppState>) -> Result<(), String> {
 async fn stop_dictation(state: State<'_, AppState>) -> Result<(), String> {
     let _lifecycle = state.audio_lifecycle.lock().await;
     log::info!("stopping dictation; draining audio and finalising Gladia session");
+    state
+        .dictation_key_held
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     stop_and_drain_audio(&state).await?;
 
     let gladia = state.gladia.lock().await;
@@ -897,86 +1015,6 @@ fn clipboard_set(text: &str) -> Result<(), String> {
     use arboard::Clipboard;
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(text).map_err(|e| e.to_string())
-}
-
-/// CoreGraphics keyboard-event simulation. Posting a synthetic Cmd+V directly is
-/// faster than `osascript` and — crucially — only needs Accessibility, not the
-/// separate "control System Events" Automation permission an AppleScript prompts for.
-#[cfg(target_os = "macos")]
-mod cg_paste {
-    use std::ffi::c_void;
-
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGEventCreateKeyboardEvent(
-            source: *const c_void,
-            keycode: u16,
-            key_down: bool,
-        ) -> *mut c_void;
-        fn CGEventSetFlags(event: *mut c_void, flags: u64);
-        fn CGEventPost(tap: u32, event: *mut c_void);
-    }
-
-    #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
-        fn CFRelease(cf: *const c_void);
-    }
-
-    const KCG_HID_EVENT_TAP: u32 = 0;
-    const KVK_V: u16 = 9;
-    const KCG_EVENT_FLAG_MASK_COMMAND: u64 = 1 << 20;
-
-    /// Post a synthetic Cmd+V into the focused app. Requires Accessibility.
-    pub fn simulate_cmd_v() -> Result<(), String> {
-        unsafe {
-            let key_down = CGEventCreateKeyboardEvent(std::ptr::null(), KVK_V, true);
-            if key_down.is_null() {
-                return Err("Failed to create key-down event".into());
-            }
-            CGEventSetFlags(key_down, KCG_EVENT_FLAG_MASK_COMMAND);
-            CGEventPost(KCG_HID_EVENT_TAP, key_down);
-            CFRelease(key_down as *const c_void);
-
-            std::thread::sleep(std::time::Duration::from_millis(20));
-
-            let key_up = CGEventCreateKeyboardEvent(std::ptr::null(), KVK_V, false);
-            if key_up.is_null() {
-                return Err("Failed to create key-up event".into());
-            }
-            CGEventSetFlags(key_up, KCG_EVENT_FLAG_MASK_COMMAND);
-            CGEventPost(KCG_HID_EVENT_TAP, key_up);
-            CFRelease(key_up as *const c_void);
-        }
-        Ok(())
-    }
-}
-
-/// Simulate the paste keystroke into the focused app (Cmd+V on macOS, Ctrl+V
-/// elsewhere). Requires Accessibility permission on macOS.
-fn send_paste_keystroke() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        cg_paste::simulate_cmd_v()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
-        enigo
-            .key(Key::Control, Direction::Press)
-            .map_err(|e| e.to_string())?;
-        enigo
-            .key(Key::Unicode('v'), Direction::Click)
-            .map_err(|e| e.to_string())?;
-        enigo
-            .key(Key::Control, Direction::Release)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        Ok(())
-    }
 }
 
 #[tauri::command]
@@ -1278,6 +1316,7 @@ fn main() {
                 hotkey_manager: Arc::new(TokioMutex::new(HotkeyManager::new())),
                 recording_state: Arc::new(TokioMutex::new(RecordingState::default())),
                 subscription_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                dictation_key_held: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 audio_sender: Arc::new(TokioMutex::new(None)),
                 tray_animation: Arc::new(TokioMutex::new(None)),
                 region: region::detect_region(),
@@ -1409,6 +1448,7 @@ fn main() {
             config::reset_corrupted_config,
             init_gladia_session,
             test_gladia_connection,
+            list_live_models,
             list_transcription_history,
             open_external_url,
             send_audio_chunk,
@@ -1438,8 +1478,14 @@ fn main() {
             config::get_endpointing,
             config::save_copy_to_clipboard,
             config::get_copy_to_clipboard,
+            config::save_live_typing,
+            config::get_live_typing,
             config::save_activation_mode,
             config::get_activation_mode,
+            config::get_api_base_url_settings,
+            config::save_api_base_url,
+            config::get_live_model,
+            config::save_live_model,
             config::save_audio_device_selection,
             config::get_audio_device_selection,
             vocabulary::save_custom_vocabulary,

@@ -31,7 +31,7 @@ npm run tauri:dev
    - Rust: `cargo test --manifest-path src-tauri/Cargo.toml`
    - Frontend / full suite: `npm test`
 4. Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages, for example `fix: restore clipboard after dictation`.
-5. Before opening a pull request, run:
+5. Before opening a pull request, run the commands below. `npm run format` formats TypeScript, CSS, JSON and Markdown with Prettier and Rust with `rustfmt`; CI runs `npm run format:check` and fails on unformatted files.
 
 ```bash
 npm run format
@@ -54,6 +54,19 @@ Open a PR that explains:
 - how you tested it (platforms, devices, and permission states when relevant)
 
 Maintainers may ask for follow-up on hotkey races, prepared-microphone lifecycle, Accessibility grant flow, or paste/clipboard behavior — those paths are easy to regress.
+
+## Releasing
+
+Maintainers release from GitHub Actions; nothing is tagged or built from a laptop.
+
+1. Pick the next version with [semver](https://semver.org/) from the commits since the last tag (`git log --oneline $(git describe --tags --abbrev=0)..origin/main`): a breaking change (`!` or `BREAKING CHANGE`) is a major, any `feat` a minor, anything else a patch.
+2. Run **Actions → Release → Run workflow** with that version (for example `1.2.0`). The workflow runs `scripts/set-version.mjs`, which writes the version into `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock`, then opens a `chore: release v1.2.0` PR from `release/v1.2.0` and dispatches CI on it.
+3. Review the PR (version diff and commit list), wait for CI, approve and merge.
+4. On merge, the workflow re-checks the versions on the merge commit, runs the format check and tests, builds the signed macOS DMG and the Windows installer, then creates the `v1.2.0` tag on that merge commit and publishes the GitHub release with notes generated from merged PR titles.
+
+The tag is only created once every build has succeeded. If a job fails after merge, re-run the failed jobs for transient errors; otherwise fix it on `main` and release the next patch version.
+
+The macOS build needs the signing and notarization secrets listed in [SIGNING.md](SIGNING.md). Changing the signing certificate makes users grant Accessibility again, so follow its rotation procedure.
 
 ## Security
 

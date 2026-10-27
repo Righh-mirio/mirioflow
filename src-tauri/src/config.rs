@@ -1,6 +1,7 @@
 // File-based config manager for API key storage
 use crate::audio::AudioDeviceSelection;
 use crate::vocabulary::{default_custom_vocabulary, CustomVocabEntry};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -16,6 +17,9 @@ pub const DEFAULT_ENDPOINTING: f64 = 0.1;
 
 /// Default activation mode used when the field is absent.
 pub const DEFAULT_ACTIVATION_MODE: &str = "push-to-talk";
+
+/// Production Gladia API base URL, used unless a custom one is configured.
+pub const DEFAULT_API_BASE_URL: &str = "https://api.gladia.io";
 
 fn default_hotkey() -> String {
     if cfg!(target_os = "macos") {
@@ -36,6 +40,9 @@ struct Config {
     /// Whether to leave the final transcription on the clipboard after a
     /// dictation session (instead of restoring the user's original clipboard).
     copy_to_clipboard: Option<bool>,
+    /// Whether partial transcripts are typed into the focused app while the
+    /// user speaks, then corrected when each final arrives (off by default).
+    live_typing: Option<bool>,
     /// How the trigger key starts a dictation: "push-to-talk" (hold) or
     /// "toggle" (press once to start, once to stop).
     activation_mode: Option<String>,
@@ -57,6 +64,14 @@ struct Config {
     /// The app version that last ran. Used to seed vocabulary on upgrade and for logging.
     #[serde(skip_serializing_if = "Option::is_none")]
     installed_version: Option<String>,
+    /// Custom Gladia API base URL (normalized, no trailing slash), set from
+    /// the developer settings. Absent means `DEFAULT_API_BASE_URL`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_base_url: Option<String>,
+    /// Live model chosen per API base URL (effective URL → model code name):
+    /// each host offers its own models. No entry means the host's default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    live_models: Option<BTreeMap<String, String>>,
 }
 
 impl Default for Config {
@@ -67,6 +82,7 @@ impl Default for Config {
             languages: Some(vec!["en".to_string()]),
             code_switching: Some(false),
             copy_to_clipboard: Some(false),
+            live_typing: Some(false),
             activation_mode: Some(DEFAULT_ACTIVATION_MODE.to_string()),
             custom_vocabulary: Some(default_custom_vocabulary()),
             endpointing: Some(DEFAULT_ENDPOINTING),
@@ -75,6 +91,8 @@ impl Default for Config {
             accessibility_prompted: Some(false),
             accessibility_cleanup_generation: Some(0),
             installed_version: None,
+            api_base_url: None,
+            live_models: None,
         }
     }
 }
@@ -94,6 +112,9 @@ impl Config {
         }
         if self.copy_to_clipboard.is_none() {
             self.copy_to_clipboard = defaults.copy_to_clipboard;
+        }
+        if self.live_typing.is_none() {
+            self.live_typing = defaults.live_typing;
         }
         if self.activation_mode.is_none() {
             self.activation_mode = defaults.activation_mode;
@@ -115,6 +136,41 @@ impl Config {
         }
         if self.accessibility_cleanup_generation.is_none() {
             self.accessibility_cleanup_generation = defaults.accessibility_cleanup_generation;
+        }
+    }
+
+    /// The Gladia API base URL requests should go to: the custom URL when
+    /// one is set, production otherwise.
+    fn effective_api_base_url(&self) -> String {
+        match self.api_base_url.as_deref() {
+            Some(url) if !url.is_empty() => url.to_string(),
+            _ => DEFAULT_API_BASE_URL.to_string(),
+        }
+    }
+
+    /// The live model chosen for the effective API base URL, if any.
+    fn live_model(&self) -> Option<String> {
+        self.live_models
+            .as_ref()?
+            .get(&self.effective_api_base_url())
+            .cloned()
+    }
+
+    /// Choose `model` for the effective API base URL; `None` (or blank)
+    /// goes back to the host's default.
+    fn set_live_model(&mut self, model: Option<String>) {
+        let url = self.effective_api_base_url();
+        let models = self.live_models.get_or_insert_with(BTreeMap::new);
+        match model.map(|model| model.trim().to_string()) {
+            Some(model) if !model.is_empty() => {
+                models.insert(url, model);
+            }
+            _ => {
+                models.remove(&url);
+            }
+        }
+        if models.is_empty() {
+            self.live_models = None;
         }
     }
 }
@@ -233,6 +289,25 @@ pub fn copy_to_clipboard() -> Result<bool, String> {
     read_config(|config| config.copy_to_clipboard.unwrap_or(false))
 }
 
+/// Whether partial transcripts are typed live. Defaults to `false` when
+/// absent. The `get_live_typing` Tauri command wraps this for the frontend.
+pub fn live_typing() -> Result<bool, String> {
+    read_config(|config| config.live_typing.unwrap_or(false))
+}
+
+/// The trigger key when it stays held for the whole dictation
+/// (push-to-talk), `None` in toggle mode.
+pub fn held_hotkey() -> Result<Option<String>, String> {
+    read_config(|config| {
+        let mode = config
+            .activation_mode
+            .as_deref()
+            .unwrap_or(DEFAULT_ACTIVATION_MODE);
+        (mode == DEFAULT_ACTIVATION_MODE)
+            .then(|| config.hotkey.clone().unwrap_or_else(default_hotkey))
+    })
+}
+
 pub fn audio_device_selection() -> Result<AudioDeviceSelection, String> {
     read_config(|config| {
         config
@@ -240,6 +315,44 @@ pub fn audio_device_selection() -> Result<AudioDeviceSelection, String> {
             .clone()
             .unwrap_or(AudioDeviceSelection::Automatic)
     })
+}
+
+/// Effective Gladia API base URL (no trailing slash). See
+/// `Config::effective_api_base_url`.
+pub fn api_base_url() -> Result<String, String> {
+    read_config(Config::effective_api_base_url)
+}
+
+/// The live model chosen for the current API base URL; `None` lets the host
+/// pick its default.
+pub fn live_model() -> Result<Option<String>, String> {
+    read_config(Config::live_model)
+}
+
+/// Validate and normalize a user-supplied API base URL. Blank input means
+/// "use the default" and yields `None`. Plain `http` is accepted so a local
+/// API can be targeted during development.
+pub fn normalize_api_base_url(raw: &str) -> Result<Option<String>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let url = url::Url::parse(trimmed).map_err(|_| {
+        format!("\"{trimmed}\" is not a valid URL (expected e.g. https://api.gladia.io).")
+    })?;
+    if url.scheme() != "https" && url.scheme() != "http" {
+        return Err("The API URL must start with https:// or http://.".into());
+    }
+    if url.host_str().is_none_or(str::is_empty) {
+        return Err("The API URL must include a host.".into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("The API URL must not contain credentials.".into());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("The API URL must not contain a query string or fragment.".into());
+    }
+    Ok(Some(url.as_str().trim_end_matches('/').to_string()))
 }
 
 pub fn save_custom_vocabulary(vocabulary: Vec<CustomVocabEntry>) -> Result<(), String> {
@@ -356,9 +469,7 @@ fn delete_api_key_at(path: &Path) -> Result<(), String> {
 #[tauri::command]
 pub async fn reset_corrupted_config(confirmed: bool) -> Result<String, String> {
     let _guard = config_mutex().lock().unwrap();
-    let timestamp = chrono::Utc::now()
-        .format("%Y%m%dT%H%M%S%3fZ")
-        .to_string();
+    let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%3fZ").to_string();
     reset_corrupted_config_at(&get_config_path(), confirmed, &timestamp)
         .map(|path| path.to_string_lossy().into_owned())
 }
@@ -414,8 +525,9 @@ fn reset_corrupted_config_at(
             return Err(message);
         }
 
-        let message =
-            format!("Failed to create fresh settings; the original file was restored: {write_error}");
+        let message = format!(
+            "Failed to create fresh settings; the original file was restored: {write_error}"
+        );
         log::error!("[config] {message}");
         return Err(message);
     }
@@ -494,6 +606,18 @@ pub async fn get_copy_to_clipboard() -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub async fn save_live_typing(enabled: bool) -> Result<(), String> {
+    with_config(|config| {
+        config.live_typing = Some(enabled);
+    })
+}
+
+#[tauri::command]
+pub async fn get_live_typing() -> Result<bool, String> {
+    live_typing()
+}
+
+#[tauri::command]
 pub async fn save_activation_mode(mode: String) -> Result<(), String> {
     if mode != "toggle" && mode != DEFAULT_ACTIVATION_MODE {
         return Err(format!("Unknown activation mode: {mode}"));
@@ -511,6 +635,73 @@ pub async fn get_activation_mode() -> Result<String, String> {
             .clone()
             .unwrap_or_else(|| DEFAULT_ACTIVATION_MODE.to_string())
     })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiBaseUrlSettings {
+    api_base_url: Option<String>,
+    effective_api_base_url: String,
+    default_api_base_url: &'static str,
+}
+
+impl ApiBaseUrlSettings {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            api_base_url: config.api_base_url.clone(),
+            effective_api_base_url: config.effective_api_base_url(),
+            default_api_base_url: DEFAULT_API_BASE_URL,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_api_base_url_settings() -> Result<ApiBaseUrlSettings, String> {
+    read_config(ApiBaseUrlSettings::from_config)
+}
+
+/// Save a custom API base URL; `None` or blank resets to the default.
+#[tauri::command]
+pub async fn save_api_base_url(api_base_url: Option<String>) -> Result<ApiBaseUrlSettings, String> {
+    let api_base_url = normalize_api_base_url(api_base_url.as_deref().unwrap_or(""))?;
+    let _guard = config_mutex().lock().unwrap();
+    save_api_base_url_at(&get_config_path(), api_base_url)
+}
+
+fn save_api_base_url_at(
+    path: &Path,
+    api_base_url: Option<String>,
+) -> Result<ApiBaseUrlSettings, String> {
+    let mut saved = None;
+    with_config_at(path, |config| {
+        config.api_base_url = api_base_url;
+        saved = Some(ApiBaseUrlSettings::from_config(config));
+    })?;
+    let saved = saved.expect("with_config_at runs the closure on success");
+    log::info!(
+        "[config] API base URL saved (effective={})",
+        saved.effective_api_base_url
+    );
+    Ok(saved)
+}
+
+/// Save the live model for the current API base URL; `None` or blank goes
+/// back to the host's default.
+#[tauri::command]
+pub async fn save_live_model(model: Option<String>) -> Result<(), String> {
+    with_config(|config| {
+        config.set_live_model(model);
+        log::info!(
+            "[config] live model saved (api_base_url={}, model={})",
+            config.effective_api_base_url(),
+            config.live_model().as_deref().unwrap_or("default")
+        );
+    })
+}
+
+#[tauri::command]
+pub async fn get_live_model() -> Result<Option<String>, String> {
+    live_model()
 }
 
 #[cfg(test)]
@@ -561,6 +752,7 @@ mod tests {
             "languages": null,
             "code_switching": null,
             "copy_to_clipboard": null,
+            "live_typing": null,
             "custom_vocabulary": null,
             "endpointing": null,
             "accessibility_tcc_reset_done": null,
@@ -574,6 +766,7 @@ mod tests {
         assert_eq!(config.languages, Some(vec!["en".to_string()]));
         assert_eq!(config.code_switching, Some(false));
         assert_eq!(config.copy_to_clipboard, Some(false));
+        assert_eq!(config.live_typing, Some(false));
         assert_eq!(config.custom_vocabulary, Some(default_custom_vocabulary()));
         assert_eq!(config.endpointing, Some(DEFAULT_ENDPOINTING));
         assert_eq!(
@@ -756,8 +949,7 @@ mod tests {
         let malformed = r#"{"api_key":"secret""#;
         fs::write(&path, malformed).unwrap();
 
-        let backup =
-            reset_corrupted_config_at(&path, true, "20260831T120000000Z").unwrap();
+        let backup = reset_corrupted_config_at(&path, true, "20260831T120000000Z").unwrap();
 
         assert_eq!(fs::read_to_string(&backup).unwrap(), malformed);
         let reset = load_config_from_path(&path).unwrap();
@@ -777,6 +969,121 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
-        assert!(!dir.0.join("config.broken-20260831T120000000Z.json").exists());
+        assert!(!dir
+            .0
+            .join("config.broken-20260831T120000000Z.json")
+            .exists());
+    }
+
+    #[test]
+    fn api_base_url_defaults_to_production() {
+        let config = Config::default();
+        assert_eq!(config.effective_api_base_url(), DEFAULT_API_BASE_URL);
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("api_base_url"));
+    }
+
+    #[test]
+    fn custom_api_base_url_overrides_default() {
+        let mut config = Config {
+            api_base_url: Some("http://localhost:8080".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(config.effective_api_base_url(), "http://localhost:8080");
+
+        config.api_base_url = Some(String::new());
+        assert_eq!(config.effective_api_base_url(), DEFAULT_API_BASE_URL);
+
+        config.api_base_url = None;
+        assert_eq!(config.effective_api_base_url(), DEFAULT_API_BASE_URL);
+    }
+
+    #[test]
+    fn normalize_api_base_url_accepts_and_trims_valid_urls() {
+        for (raw, expected) in [
+            ("https://api.gladia.io", "https://api.gladia.io"),
+            ("  https://api.gladia.io/  ", "https://api.gladia.io"),
+            ("http://localhost:8080", "http://localhost:8080"),
+            ("http://127.0.0.1:3000/", "http://127.0.0.1:3000"),
+            (
+                "https://staging.example.com/proxy/",
+                "https://staging.example.com/proxy",
+            ),
+        ] {
+            assert_eq!(
+                normalize_api_base_url(raw).unwrap().as_deref(),
+                Some(expected),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_api_base_url_treats_blank_as_default() {
+        assert_eq!(normalize_api_base_url("").unwrap(), None);
+        assert_eq!(normalize_api_base_url("   ").unwrap(), None);
+    }
+
+    #[test]
+    fn normalize_api_base_url_rejects_invalid_urls() {
+        for raw in [
+            "api.gladia.io",
+            "not a url",
+            "ftp://api.gladia.io",
+            "file:///tmp/api",
+            "https://user:pass@api.gladia.io",
+            "https://api.gladia.io/?region=eu-west",
+            "https://api.gladia.io/#frag",
+        ] {
+            assert!(normalize_api_base_url(raw).is_err(), "should reject {raw}");
+        }
+    }
+
+    #[test]
+    fn live_model_is_chosen_per_api_base_url() {
+        let mut config = Config::default();
+        assert_eq!(config.live_model(), None);
+
+        config.set_live_model(Some("solaria-1".to_string()));
+        config.api_base_url = Some("https://eu1.api.gladia.io".to_string());
+        assert_eq!(config.live_model(), None);
+        config.set_live_model(Some(" solaria-3 ".to_string()));
+        assert_eq!(config.live_model().as_deref(), Some("solaria-3"));
+
+        config.api_base_url = None;
+        assert_eq!(config.live_model().as_deref(), Some("solaria-1"));
+
+        config.set_live_model(None);
+        assert_eq!(config.live_model(), None);
+        config.api_base_url = Some("https://eu1.api.gladia.io".to_string());
+        config.set_live_model(Some(String::new()));
+        assert_eq!(config.live_model(), None);
+        assert!(config.live_models.is_none());
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("live_models"));
+    }
+
+    #[test]
+    fn saving_api_base_url_preserves_other_settings() {
+        let dir = TestConfigDir::new();
+        let path = dir.config_path();
+        let config = Config {
+            api_key: Some("secret".to_string()),
+            hotkey: Some("CmdRight".to_string()),
+            ..Config::default()
+        };
+        write_config_to_path(&path, &config).unwrap();
+
+        let saved = save_api_base_url_at(&path, Some("http://localhost:8080".to_string())).unwrap();
+        assert_eq!(saved.effective_api_base_url, "http://localhost:8080");
+
+        let loaded = load_config_from_path(&path).unwrap();
+        assert_eq!(loaded.api_key.as_deref(), Some("secret"));
+        assert_eq!(loaded.hotkey.as_deref(), Some("CmdRight"));
+        assert_eq!(loaded.effective_api_base_url(), "http://localhost:8080");
+
+        let saved = save_api_base_url_at(&path, None).unwrap();
+        assert_eq!(saved.api_base_url, None);
+        assert_eq!(saved.effective_api_base_url, DEFAULT_API_BASE_URL);
     }
 }

@@ -4,6 +4,9 @@ import type {
   AppStatus,
   AppSettings,
   CustomVocabEntry,
+  ApiBaseUrlSettings,
+  LiveModelOptions,
+  LiveModels,
   TranscriptionHistoryPage,
   AudioDeviceInfo,
   AudioDeviceSelection,
@@ -49,6 +52,8 @@ import {
   updateHoldModeWarningStreak,
 } from "./lib/holdModeWarning";
 import { loadSavedApiKey, resetCorruptedConfig } from "./lib/configLoad";
+import { resolveHotkeyPress } from "./lib/dictationHotkey";
+import { liveTypingWaitsForRelease } from "./lib/liveTyping";
 import { SidebarNav, type NavScreen } from "./components/SidebarNav";
 import { AppSettingsView } from "./components/AppSettingsView";
 import { TranscriptionSettingsView } from "./components/TranscriptionSettingsView";
@@ -135,6 +140,8 @@ export default function App() {
   const [isApiKeyLocked, setIsApiKeyLocked] = useState(false);
   const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
   const [isTestingApiKey, setIsTestingApiKey] = useState(false);
+  /** Key-check failure, shown under the API key field (not as a dictation error). */
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [configLoadPending, setConfigLoadPending] = useState(true);
   const [configLoadError, setConfigLoadError] = useState<string | null>(null);
   const [configResetConfirmationOpen, setConfigResetConfirmationOpen] =
@@ -155,16 +162,28 @@ export default function App() {
     hotkey: "Fn",
     codeSwitching: false,
     copyToClipboard: false,
+    liveTyping: false,
     endpointing: 0.1,
     customVocabulary: DEFAULT_CUSTOM_VOCABULARY,
   });
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [platform, setPlatform] = useState<string>("macos");
   const [region, setRegion] = useState<string>("");
+  const [apiBaseUrlSettings, setApiBaseUrlSettings] =
+    useState<ApiBaseUrlSettings | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false);
   const [activationDropdownOpen, setActivationDropdownOpen] = useState(false);
   const [audioDeviceDropdownOpen, setAudioDeviceDropdownOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  /** Live model for the current API base URL; `null` = the host's default. */
+  const [liveModel, setLiveModel] = useState<string | null>(null);
+  /** Last model list fetched, and the API base URL and key it is for. */
+  const [fetchedLiveModels, setFetchedLiveModels] = useState<{
+    apiBaseUrl: string;
+    apiKey: string;
+    options: LiveModelOptions;
+  } | null>(null);
   const [dictationStats, setDictationStats] = useState<DictationStats>(
     () => loadDictationStats(localStorage),
   );
@@ -203,6 +222,7 @@ export default function App() {
   const vocabularySettingsLoaded = useRef(false);
   const endpointingLoaded = useRef(false);
   const copyToClipboardLoaded = useRef(false);
+  const liveTypingLoaded = useRef(false);
   const activationModeLoaded = useRef(false);
   const audioDeviceSelectionLoaded = useRef(false);
 
@@ -236,6 +256,7 @@ export default function App() {
   const languageDropdownRef = useRef<HTMLDivElement | null>(null);
   const activationDropdownRef = useRef<HTMLDivElement | null>(null);
   const audioDeviceDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     ensureNotificationPermission().catch((error) => {
@@ -302,6 +323,12 @@ export default function App() {
       enabled: settings.copyToClipboard,
     }).catch(console.error);
   }, [settings.copyToClipboard]);
+  useEffect(() => {
+    if (!liveTypingLoaded.current) return;
+    invoke("save_live_typing", { enabled: settings.liveTyping }).catch(
+      console.error,
+    );
+  }, [settings.liveTyping]);
   useEffect(() => {
     if (!activationModeLoaded.current) return;
     invoke("save_activation_mode", { mode: settings.activationMode }).catch(
@@ -404,7 +431,8 @@ export default function App() {
     if (
       !languageDropdownOpen &&
       !activationDropdownOpen &&
-      !audioDeviceDropdownOpen
+      !audioDeviceDropdownOpen &&
+      !modelDropdownOpen
     )
       return;
 
@@ -414,16 +442,28 @@ export default function App() {
       const clickedActivation = activationDropdownRef.current?.contains(target);
       const clickedAudioDevice =
         audioDeviceDropdownRef.current?.contains(target);
-      if (!clickedLanguage && !clickedActivation && !clickedAudioDevice) {
+      const clickedModel = modelDropdownRef.current?.contains(target);
+      if (
+        !clickedLanguage &&
+        !clickedActivation &&
+        !clickedAudioDevice &&
+        !clickedModel
+      ) {
         setLanguageDropdownOpen(false);
         setActivationDropdownOpen(false);
         setAudioDeviceDropdownOpen(false);
+        setModelDropdownOpen(false);
       }
     };
 
     window.addEventListener("mousedown", onPointerDown);
     return () => window.removeEventListener("mousedown", onPointerDown);
-  }, [languageDropdownOpen, activationDropdownOpen, audioDeviceDropdownOpen]);
+  }, [
+    languageDropdownOpen,
+    activationDropdownOpen,
+    audioDeviceDropdownOpen,
+    modelDropdownOpen,
+  ]);
 
   const isMac = platform === "macos";
 
@@ -487,6 +527,11 @@ export default function App() {
       const r = await invoke<string>("get_region").catch(() => "");
       setRegion(r);
 
+      const apiUrl = await invoke<ApiBaseUrlSettings>(
+        "get_api_base_url_settings",
+      ).catch(() => null);
+      setApiBaseUrlSettings(apiUrl);
+
       const v = await getVersion().catch(() => "");
       setAppVersion(v);
 
@@ -516,6 +561,10 @@ export default function App() {
         "get_copy_to_clipboard",
       ).catch(() => false);
 
+      const savedLiveTyping = await invoke<boolean>("get_live_typing").catch(
+        () => false,
+      );
+
       const savedActivationMode = await invoke<ActivationMode>(
         "get_activation_mode",
       ).catch(() => "push-to-talk" as ActivationMode);
@@ -535,6 +584,7 @@ export default function App() {
           : {}),
         endpointing: savedEndpointing,
         copyToClipboard: savedCopyToClipboard,
+        liveTyping: savedLiveTyping,
         activationMode: savedActivationMode,
         audioDeviceSelection: savedAudioDeviceSelection,
         customVocabulary: savedVocabulary,
@@ -543,12 +593,59 @@ export default function App() {
       vocabularySettingsLoaded.current = true;
       endpointingLoaded.current = true;
       copyToClipboardLoaded.current = true;
+      liveTypingLoaded.current = true;
       activationModeLoaded.current = true;
       audioDeviceSelectionLoaded.current = true;
       setSettingsReady(true);
     };
     init();
   }, [loadApiKeyFromConfig]);
+
+  // Each API base URL offers its own live models and remembers its own
+  // choice: reload both when the URL changes, and refresh the list whenever
+  // Transcription settings opens (availability changes over time).
+  const effectiveApiBaseUrl = apiBaseUrlSettings?.effectiveApiBaseUrl;
+  const transcriptionSettingsOpen = navScreen === "dictation";
+  useEffect(() => {
+    if (!effectiveApiBaseUrl) return;
+    let cancelled = false;
+    invoke<string | null>("get_live_model")
+      .then((model) => {
+        if (!cancelled) setLiveModel(model);
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApiBaseUrl]);
+  useEffect(() => {
+    if (!effectiveApiBaseUrl || !hasSavedApiKey || !transcriptionSettingsOpen)
+      return;
+    let cancelled = false;
+    const fetchApiKey = apiKeyRef.current.trim();
+    const settle = (options: LiveModelOptions) => {
+      if (!cancelled)
+        setFetchedLiveModels({
+          apiBaseUrl: effectiveApiBaseUrl,
+          apiKey: fetchApiKey,
+          options,
+        });
+    };
+    // The list on screen stays until the refresh answers.
+    invoke<LiveModels>("list_live_models", { apiKey: fetchApiKey })
+      .then((liveModels) => settle({ status: "ready", ...liveModels }))
+      .catch((error) => settle({ status: "error", message: String(error) }));
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApiBaseUrl, hasSavedApiKey, transcriptionSettingsOpen]);
+  // A list fetched for another URL or key is never shown.
+  const liveModelOptions: LiveModelOptions =
+    fetchedLiveModels &&
+    fetchedLiveModels.apiBaseUrl === effectiveApiBaseUrl &&
+    fetchedLiveModels.apiKey === apiKey.trim()
+      ? fetchedLiveModels.options
+      : { status: "loading" };
 
   useEffect(() => {
     if (!bootstrap) {
@@ -562,6 +659,7 @@ export default function App() {
           hotkey: settings.hotkey,
           codeSwitching: settings.codeSwitching,
           copyToClipboard: settings.copyToClipboard,
+          liveTyping: settings.liveTyping,
           endpointing: settings.endpointing,
           customVocabulary: settings.customVocabulary,
         },
@@ -1200,6 +1298,39 @@ export default function App() {
     }
   };
 
+  const handleSaveApiBaseUrl = async (apiBaseUrl: string | null) => {
+    const saved = await invoke<ApiBaseUrlSettings>("save_api_base_url", {
+      apiBaseUrl,
+    });
+    setApiBaseUrlSettings(saved);
+    // The next dictation must open a session against the new endpoint.
+    if (sessionInitialized.current && !isRecordingRef.current) {
+      sessionInitialized.current = false;
+      invoke("close_gladia_session").catch(console.error);
+    }
+  };
+
+  const handleSelectLiveModel = async (model: string | null) => {
+    setModelDropdownOpen(false);
+    if (model === liveModel) return;
+    setLiveModel(model);
+    try {
+      await invoke("save_live_model", { model });
+    } catch (error) {
+      console.error("Failed to save live model:", error);
+    }
+    // The next dictation must open a session on the new model.
+    if (sessionInitialized.current && !isRecordingRef.current) {
+      sessionInitialized.current = false;
+      invoke("close_gladia_session").catch(console.error);
+    }
+  };
+
+  const handleChangeApiKey = (value: string) => {
+    setApiKey(value);
+    setApiKeyError(null);
+  };
+
   const handleSaveApiKey = async () => {
     if (isTestingApiKey || !apiKey.trim()) return;
 
@@ -1214,6 +1345,7 @@ export default function App() {
     }
 
     const trimmedApiKey = apiKey.trim();
+    setApiKeyError(null);
     setIsTestingApiKey(true);
     setStatus({
       phase: "transcribing",
@@ -1226,11 +1358,13 @@ export default function App() {
         apiKey: trimmedApiKey,
       });
       if (!connectionOk) {
-        setStatus({
-          phase: "error",
-          title: "Error",
-          detail: "Invalid API key. Please check and retry.",
-        });
+        const customUrl = apiBaseUrlSettings?.apiBaseUrl;
+        setApiKeyError(
+          customUrl
+            ? `Invalid API key for ${customUrl}.`
+            : "Invalid API key. Please check and retry.",
+        );
+        setStatus({ phase: "idle", title: "Ready", detail: "" });
         return;
       }
 
@@ -1246,11 +1380,8 @@ export default function App() {
       await checkAllPermissions();
     } catch (e) {
       console.error("Failed to save API key:", e);
-      setStatus({
-        phase: "error",
-        title: "Error",
-        detail: `Failed to save API key: ${e}`,
-      });
+      setApiKeyError(`Couldn't verify the API key. ${e}`);
+      setStatus({ phase: "idle", title: "Ready", detail: "" });
     } finally {
       setIsTestingApiKey(false);
     }
@@ -1277,21 +1408,29 @@ export default function App() {
   };
 
   const handleOpenDropdown = (
-    dropdown: "languages" | "activation" | "audioDevice",
+    dropdown: "languages" | "activation" | "audioDevice" | "model",
   ) => {
     setLanguageDropdownOpen(dropdown === "languages");
     setActivationDropdownOpen(dropdown === "activation");
     setAudioDeviceDropdownOpen(dropdown === "audioDevice");
+    setModelDropdownOpen(dropdown === "model");
   };
 
   const scheduleSessionEndFallback = () => {
     clearStopFallbackTimer();
     stopFallbackTimerRef.current = setTimeout(async () => {
       stopFallbackTimerRef.current = null;
-      if (stopRequestedRef.current && sessionInitialized.current) {
+      if (stopRequestedRef.current) {
+        // Always release the finalizing state, even when no Gladia session was
+        // ever opened — otherwise the app stays stuck on "Finalizing...".
         console.warn("Gladia session timed out — closing");
-        await invoke("close_gladia_session").catch(console.error);
-        sessionInitialized.current = false;
+        logWarn(
+          `[dictation-stop] session-ended not received after stop; forcing reset (session=${sessionInitialized.current ? "open" : "none"})`,
+        ).catch(() => {});
+        if (sessionInitialized.current) {
+          await invoke("close_gladia_session").catch(console.error);
+          sessionInitialized.current = false;
+        }
         stopRequestedRef.current = false;
         setProcessingState(false);
         setStatus({
@@ -1546,27 +1685,68 @@ export default function App() {
     if (justCapturedRef.current) return;
     if (!apiKeyRef.current.trim()) return;
 
-    // Rapid re-press while the previous utterance is still finalizing: queue a
-    // restart for as soon as processing clears (instead of dropping the press).
-    if (isProcessingRef.current) {
-      pendingStartRef.current = true;
-      logInfo(
-        "[hotkey] pressed during finalize; queued dictation restart",
-      ).catch(() => {});
-      return;
-    }
-
-    if (settingsRef.current.activationMode === "push-to-talk") {
-      if (!isRecordingRef.current && !isInitializingRef.current) {
-        await handleStartDictation();
-      }
-    } else {
-      if (isRecordingRef.current) {
+    const action = resolveHotkeyPress({
+      activationMode: settingsRef.current.activationMode,
+      isProcessing: isProcessingRef.current,
+      isInitializing: isInitializingRef.current,
+      isRecording: isRecordingRef.current,
+    });
+    switch (action) {
+      case "queue-restart":
+        pendingStartRef.current = true;
+        logInfo(
+          "[hotkey] pressed during finalize; queued dictation restart",
+        ).catch(() => {});
+        return;
+      case "stop-during-init":
+        requestStopDuringInitialization("toggle pressed");
+        return;
+      case "stop":
         await handleStopDictation();
-      } else {
+        return;
+      case "start":
         await handleStartDictation();
-      }
+        return;
+      case "ignore":
+        return;
     }
+  };
+
+  // Stop requested before the Gladia session exists: pause audio now and let
+  // handleStartDictation finish init, then send stop_recording (see its
+  // pendingStopRef branch) so session-ended still clears the finalizing state.
+  const requestStopDuringInitialization = (reason: string) => {
+    pendingStopRef.current = true;
+    const keyUpAt = performance.now();
+    earlyReleaseAtRef.current = keyUpAt;
+    const wasAudioReady = audioReadyRef.current;
+    clearAudioReadyTimer();
+    audioReadyRef.current = false;
+    stopRequestedRef.current = true;
+    clearStopFallbackTimer();
+    setRecordingState(false);
+    setProcessingState(true);
+    setStatus({
+      phase: "finalizing",
+      title: "Finalizing...",
+      detail: "Pasting your transcription",
+    });
+    if (wasAudioReady) {
+      audioCue.playStopSound();
+    }
+    logInfo(
+      `[dictation-stop] hotkey ${reason} during session initialization; stopping audio immediately`,
+    ).catch(() => {});
+    earlyAudioStopPromiseRef.current = invoke("stop_audio_capture")
+      .then(() => {
+        logInfo(
+          `audio latency: key-up-to-capture-paused=${(
+            performance.now() - keyUpAt
+          ).toFixed(1)}ms`,
+        ).catch(() => {});
+        return null;
+      })
+      .catch((error) => String(error));
   };
 
   const handleHotkeyReleased = async () => {
@@ -1589,37 +1769,7 @@ export default function App() {
         );
       }
       if (isInitializingRef.current) {
-        pendingStopRef.current = true;
-        const keyUpAt = performance.now();
-        earlyReleaseAtRef.current = keyUpAt;
-        const wasAudioReady = audioReadyRef.current;
-        clearAudioReadyTimer();
-        audioReadyRef.current = false;
-        stopRequestedRef.current = true;
-        clearStopFallbackTimer();
-        setRecordingState(false);
-        setProcessingState(true);
-        setStatus({
-          phase: "finalizing",
-          title: "Finalizing...",
-          detail: "Pasting your transcription",
-        });
-        if (wasAudioReady) {
-          audioCue.playStopSound();
-        }
-        logInfo(
-          "[dictation-stop] hotkey released during session initialization; stopping audio immediately",
-        ).catch(() => {});
-        earlyAudioStopPromiseRef.current = invoke("stop_audio_capture")
-          .then(() => {
-            logInfo(
-              `audio latency: key-up-to-capture-paused=${(
-                performance.now() - keyUpAt
-              ).toFixed(1)}ms`,
-            ).catch(() => {});
-            return null;
-          })
-          .catch((error) => String(error));
+        requestStopDuringInitialization("released");
       } else if (isRecordingRef.current) {
         await handleStopDictation();
       }
@@ -1826,6 +1976,18 @@ export default function App() {
               setLanguageSearch={setLanguageSearch}
               filteredLanguageOptions={filteredLanguageOptions}
               selectedLanguageSummary={selectedLanguageSummary}
+              modelDropdownOpen={modelDropdownOpen}
+              setModelDropdownOpen={setModelDropdownOpen}
+              modelDropdownRef={modelDropdownRef}
+              liveModel={liveModel}
+              liveModelOptions={liveModelOptions}
+              apiHost={effectiveApiBaseUrl?.replace(/^https?:\/\//, "") ?? ""}
+              onSelectLiveModel={handleSelectLiveModel}
+              liveTypingWaitsForRelease={liveTypingWaitsForRelease(
+                platform,
+                settings.activationMode,
+                settings.hotkey,
+              )}
               onDone={() => setNavScreen("home")}
             />
           )}
@@ -1852,10 +2014,11 @@ export default function App() {
               saveCapture={saveCapture}
               handleResetHotkey={handleResetHotkey}
               defaultHotkey={DEFAULT_HOTKEY}
-              isMac={isMac}
               permissions={permissions}
               region={region}
               version={appVersion}
+              apiBaseUrlSettings={apiBaseUrlSettings}
+              onSaveApiBaseUrl={handleSaveApiBaseUrl}
               onDone={() => setNavScreen("home")}
               onOpenLogs={() => invoke("open_log_folder").catch(console.error)}
             />
@@ -1891,8 +2054,11 @@ export default function App() {
               displayValue={apiKeyDisplayValue}
               isLocked={isApiKeyLocked}
               isTesting={isTestingApiKey}
-              onChangeKey={setApiKey}
+              onChangeKey={handleChangeApiKey}
+              error={apiKeyError}
               onSave={handleSaveApiKey}
+              apiBaseUrlSettings={apiBaseUrlSettings}
+              onSaveApiBaseUrl={handleSaveApiBaseUrl}
             />
           )}
           {activeScreen === "home" && (
@@ -1909,7 +2075,8 @@ export default function App() {
               isApiKeyLocked={isApiKeyLocked}
               hasSavedApiKey={hasSavedApiKey}
               isTestingApiKey={isTestingApiKey}
-              onChangeApiKey={setApiKey}
+              onChangeApiKey={handleChangeApiKey}
+              apiKeyError={apiKeyError}
               onSaveApiKey={handleSaveApiKey}
               permissions={permissions}
               isMac={isMac}

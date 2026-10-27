@@ -22,6 +22,7 @@ Mirioflow is an unofficial fork of [Saydrop](https://github.com/moekoelueker/say
 Mirioflow is an open-source desktop app that turns speech into text wherever you type. Hold a hotkey, speak, and the app streams your microphone to the [Gladia Live Transcription API](https://docs.gladia.io/), cleans the result, and pastes it into the focused application.
 
 > [!NOTE]
+>
 > Mirioflow currently supports macOS and Windows. A [Gladia API key](https://app.gladia.io/) is required.
 
 ## Why Mirioflow?
@@ -47,6 +48,8 @@ Mirioflow has no published installers yet. Build one with `npm run tauri:build` 
 
 The shortcut and activation mode can be changed in **App settings**.
 
+Turn on **Live typing** in **Transcription settings** to see partials words appear in the focused app as you speak, instead of once each final sentences.
+
 ## Development
 
 ### Prerequisites
@@ -69,9 +72,11 @@ npm run tauri:dev
 The last command starts Vite, opens the Tauri application, and enables frontend and Rust hot reload. Enter your API key through the onboarding screen; no `.env` file is needed.
 
 > [!TIP]
+>
 > On Windows, if Vite stops with `EBUSY` while Rust is compiling, start the app from PowerShell with `$env:CHOKIDAR_USEPOLLING="true"; npm run tauri:dev`. Vite then polls for changes instead of holding files that Cargo is writing.
 
 > [!TIP]
+>
 > Run `npm run dev` when you only need the browser-based frontend. Native audio, global shortcuts, clipboard access, and Tauri commands require `npm run tauri:dev`.
 
 ### Useful commands
@@ -111,13 +116,13 @@ Focused app ← clipboard-safe paste ← transcript cleanup
 
 ## Architecture
 
-| Area            | Technology                 | Location                               |
-| --------------- | -------------------------- | -------------------------------------- |
-| Desktop shell   | Tauri 2                    | `src-tauri/`                           |
-| Native backend  | Rust, Tokio, CPAL          | `src-tauri/src/`                       |
-| Interface       | React 19, TypeScript, Vite | `src/`                                 |
-| Native bridge   | Tauri commands and events  | `src/App.tsx`, `src-tauri/src/main.rs` |
-| CI and releases | GitHub Actions             | `.github/workflows/`                   |
+| Area | Technology | Location |
+| --- | --- | --- |
+| Desktop shell | Tauri 2 | `src-tauri/` |
+| Native backend | Rust, Tokio, CPAL | `src-tauri/src/` |
+| Interface | React 19, TypeScript, Vite | `src/` |
+| Native bridge | Tauri commands and events | `src/App.tsx`, `src-tauri/src/main.rs` |
+| CI and releases | GitHub Actions | `.github/workflows/` |
 
 Important backend modules include:
 
@@ -125,6 +130,7 @@ Important backend modules include:
 - `audio.rs` — microphone capture and PCM streaming
 - `hotkey.rs` — global activation shortcut and accessibility checks
 - `utterance_cleaner.rs` — incremental transcript post-processing
+- `live_typing.rs` and `keystrokes.rs` — live typing of partial transcripts, and synthetic keyboard input
 - `vocabulary.rs` — custom vocabulary expansion
 - `config.rs` and `history.rs` — local settings and dictation history
 
@@ -132,13 +138,13 @@ The UI uses two windows: `main` for onboarding, history, and settings; and `over
 
 ## Platform support
 
-| Capability           | macOS                                      | Windows                              |
-| -------------------- | ------------------------------------------ | ------------------------------------ |
-| Default shortcut     | <kbd>Fn</kbd> / <kbd>Globe</kbd>           | <kbd>Ctrl</kbd> + <kbd>Space</kbd>   |
-| Paste integration    | CoreGraphics <kbd>Cmd</kbd> + <kbd>V</kbd> | enigo <kbd>Ctrl</kbd> + <kbd>V</kbd> |
-| Clipboard            | `pbcopy` / `pbpaste`                       | `arboard`                            |
-| Required permissions | Microphone and Accessibility               | Microphone                           |
-| Release bundle       | Universal DMG                              | NSIS installer                       |
+| Capability | macOS | Windows |
+| --- | --- | --- |
+| Default shortcut | <kbd>Fn</kbd> / <kbd>Globe</kbd> | <kbd>Ctrl</kbd> + <kbd>Space</kbd> |
+| Paste integration | CoreGraphics <kbd>Cmd</kbd> + <kbd>V</kbd> | enigo <kbd>Ctrl</kbd> + <kbd>V</kbd> |
+| Clipboard | `pbcopy` / `pbpaste` | `arboard` |
+| Required permissions | Microphone and Accessibility | Microphone |
+| Release bundle | Universal DMG | NSIS installer |
 
 Linux is not currently supported because the global hotkey, clipboard, and permission integrations are platform-specific.
 
@@ -152,7 +158,7 @@ npm run tauri:build
 
 Artifacts are written below `src-tauri/target/`. macOS universal release builds are placed in `universal-apple-darwin/release/bundle/dmg/`; Windows NSIS builds are placed in `release/bundle/nsis/`.
 
-The release workflow runs for tags matching `v*`, stamps the tag version into the Node, Tauri, and Cargo manifests, builds macOS and Windows installers, and publishes them to GitHub Releases.
+Releases go through a pull request: the Release workflow opens a `release/vX.Y.Z` PR that bumps the Node, Tauri, and Cargo versions, and merging it builds the signed macOS and Windows installers, tags the merge commit, and publishes them to GitHub Releases. See [Releasing](CONTRIBUTING.md#releasing).
 
 ## Privacy and data handling
 
