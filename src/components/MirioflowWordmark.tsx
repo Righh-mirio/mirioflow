@@ -1,25 +1,35 @@
-// Tiger paths in a 64x64 box, shared with design/mirioflow-icons/generate.py.
+// Tiger paths in a 200x200 box, shared with design/mirioflow-icons/generate.py.
+const TILT = "translate(100 104) rotate(-12) scale(0.86) translate(-100 -104)";
 const HEAD =
-  "M14 7L25 15Q32 12.5 39 15L50 7L51 21L58 27L53 31L59 38L52 41L54 48L43 51L32 58L21 51L10 48L12 41L5 38L11 31L6 27L13 21Z";
-const CUTS =
-  "M16.5 11L23 15.5L17.5 18Z M47.5 11L41 15.5L46.5 18Z M29.5 15L34.5 15L32 23Z M21 19.5L27.5 21L22.5 24.5Z M43 19.5L36.5 21L41.5 24.5Z M18 28.5L28 31.5L20 33Z M46 28.5L36 31.5L44 33Z M8.5 32.5L17 34.5L10 36Z M55.5 32.5L47 34.5L54 36Z M11 42.5L18 41.5L13 44.5Z M53 42.5L46 41.5L51 44.5Z M28.5 35.5L35.5 35.5L32 39Z M22.5 41.5Q32 37.5 41.5 41.5L38.5 51Q32 54.5 25.5 51Z";
+  "M100 30 C120 28 130 32 136 36 Q144 16 160 18 Q170 24 162 46 Q174 54 178 66 Q170 68 166 70 Q182 80 186 98 Q176 96 170 98 Q186 112 182 130 Q172 126 166 128 Q174 144 160 158 Q150 152 144 152 Q136 166 120 174 Q100 184 80 174 Q64 166 56 152 Q50 152 40 158 Q26 144 34 128 Q28 126 18 130 Q14 112 30 98 Q24 96 14 98 Q18 80 34 70 Q30 68 22 66 Q26 54 38 46 Q30 24 40 18 Q56 16 64 36 C70 32 80 28 100 30 Z";
+const INK_SHAPES =
+  "M144 34 Q150 24 158 24 Q162 30 158 40 Z M56 34 Q50 24 42 24 Q38 30 42 40 Z M94 36 L106 36 L100 52 Z M84 40 L90 38 L88 50 Z M116 40 L110 38 L112 50 Z M70 44 L80 46 L72 56 Z M130 44 L120 46 L128 56 Z M148 60 L170 66 L150 70 Z M152 82 L178 92 L154 92 Z M150 104 L178 114 L152 114 Z M146 124 L168 134 L148 134 Z M52 60 L30 66 L50 70 Z M48 82 L22 92 L46 92 Z M50 104 L22 114 L48 114 Z M54 124 L32 134 L52 134 Z M90 70 L98 72 L92 74 Z M110 70 L102 72 L108 74 Z M62 68 L86 76 L70 80 Z M138 68 L114 76 L130 80 Z M86 84 Q100 80 114 84 L104 96 Q100 99 96 96 Z M60 108 Q80 100 96 104 Q100 106 104 104 Q120 100 140 108 Q148 132 132 150 Q100 166 68 150 Q52 132 60 108 Z";
+const TONGUE = "M70 149 Q100 126 130 149 Q100 168 70 149 Z";
 const FANGS =
-  "M25 41.6L28.6 40.5L26.6 47Z M39 41.6L35.4 40.5L37.4 47Z M28.5 52.3L30.5 52.9L29.2 49.5Z M35.5 52.3L33.5 52.9L34.8 49.5Z";
+  "M66 108 L78 106 L72 132 Z M134 108 L122 106 L128 132 Z M84 104 L90 104.5 L87 112 Z M116 104 L110 104.5 L113 112 Z M80 155 L88 157.5 L86 138 Z M120 155 L112 157.5 L114 138 Z";
 
-/** Mirioflow wordmark: a white roaring tiger face on orange, plus the name. */
+/** Mirioflow wordmark: a white tiger roaring on orange, plus the name. */
 export function MirioflowWordmark({ className }: { className?: string }) {
   return (
     <span className={className ?? "logo-wordmark"}>
       <svg
         className="logo-wordmark-mark"
-        viewBox="0 0 64 64"
+        viewBox="0 0 200 200"
         aria-hidden="true"
         focusable="false"
       >
-        <rect className="logo-wordmark-badge" width="64" height="64" rx="15" />
-        <g transform="translate(5 5.5) scale(0.84)">
+        <rect
+          className="logo-wordmark-badge"
+          width="200"
+          height="200"
+          rx="46"
+        />
+        <g transform={TILT}>
           <path className="logo-wordmark-tiger" d={HEAD} />
-          <path className="logo-wordmark-badge" d={CUTS} />
+          <path className="logo-wordmark-ink" d={INK_SHAPES} />
+          <circle className="logo-wordmark-eye" cx="74" cy="75" r="2.6" />
+          <circle className="logo-wordmark-eye" cx="126" cy="75" r="2.6" />
+          <path className="logo-wordmark-tongue" d={TONGUE} />
           <path className="logo-wordmark-tiger" d={FANGS} />
         </g>
       </svg>

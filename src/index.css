@@ -123,8 +123,8 @@ textarea {
 }
 
 .logo-wordmark-mark {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
 }
 
@@ -135,6 +135,18 @@ textarea {
 
 .logo-wordmark-tiger {
   fill: var(--color-neutral-0);
+}
+
+.logo-wordmark-ink {
+  fill: var(--color-logo-ink);
+}
+
+.logo-wordmark-eye {
+  fill: var(--color-logo-eye);
+}
+
+.logo-wordmark-tongue {
+  fill: var(--color-logo-tongue);
 }
 
 .logo-wordmark-text {

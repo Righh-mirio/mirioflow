@@ -49,6 +49,11 @@
   --color-orange-700: #c2410c;
   --color-orange-800: #9a3412;
 
+  /* Primitives — Mirioflow tiger logo (same in both themes) */
+  --color-logo-ink: #2b0f05;
+  --color-logo-eye: #fbbf24;
+  --color-logo-tongue: #f0743a;
+
   /* Primitives — accent palette */
   --color-blue-400: #1a9eff;
   --color-blue-500: #008cff;
