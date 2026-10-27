@@ -5,6 +5,7 @@ import {
   getCurrentStreak,
   getLongestStreak,
   getRecentDays,
+  msUntilNextLocalDay,
   parseStoredDictationStats,
   previousDateKey,
   recordDictation,
@@ -132,5 +133,24 @@ describe("parseStoredDictationStats", () => {
     expect(parseStoredDictationStats(null, null)).toEqual(
       DEFAULT_DICTATION_STATS,
     );
+  });
+});
+
+describe("msUntilNextLocalDay", () => {
+  it("counts down to the next local midnight", () => {
+    expect(msUntilNextLocalDay(new Date(2026, 9, 27, 23, 59, 30))).toBe(30_000);
+    expect(msUntilNextLocalDay(new Date(2026, 9, 27, 0, 0, 0))).toBeGreaterThan(
+      23 * 60 * 60 * 1000,
+    );
+  });
+
+  it("lands on a day whose streak no longer counts a missed yesterday", () => {
+    let stats = record(DEFAULT_DICTATION_STATS, at(9, 26));
+    const evening = new Date(2026, 9, 27, 21, 0, 0);
+    expect(getCurrentStreak(stats.days, evening)).toBe(1);
+    const nextDay = new Date(evening.getTime() + msUntilNextLocalDay(evening));
+    expect(getCurrentStreak(stats.days, nextDay)).toBe(0);
+    stats = record(stats, nextDay);
+    expect(getCurrentStreak(stats.days, nextDay)).toBe(1);
   });
 });

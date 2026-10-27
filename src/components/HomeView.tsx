@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type DictationStats,
+  msUntilNextLocalDay,
   summarizeDictationStats,
 } from "../lib/dictationStats";
 import { ApiKeyField } from "./ApiKeyField";
@@ -55,13 +56,37 @@ export function HomeView({
   now?: Date;
 }) {
   const nowTime = now?.getTime();
+  // The app lives in the tray for days, so "today" must move on by itself:
+  // refresh at local midnight and whenever the window becomes visible again.
+  const [clockTime, setClockTime] = useState(() => Date.now());
+  useEffect(() => {
+    if (nowTime !== undefined) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleMidnight = () => {
+      timer = setTimeout(
+        () => {
+          setClockTime(Date.now());
+          scheduleMidnight();
+        },
+        msUntilNextLocalDay(new Date()) + 1000,
+      );
+    };
+    scheduleMidnight();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        setClockTime(Date.now());
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [nowTime]);
+  const summaryTime = nowTime ?? clockTime;
   const summary = useMemo(
-    () =>
-      summarizeDictationStats(
-        dictationStats,
-        nowTime === undefined ? new Date() : new Date(nowTime),
-      ),
-    [dictationStats, nowTime],
+    () => summarizeDictationStats(dictationStats, new Date(summaryTime)),
+    [dictationStats, summaryTime],
   );
   const maxWeekWords = Math.max(0, ...summary.week.map((day) => day.words));
   const weekTotalWords = summary.week.reduce((sum, day) => sum + day.words, 0);

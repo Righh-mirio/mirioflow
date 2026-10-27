@@ -71,6 +71,11 @@ export const previousDateKey = (key: string): string => {
   );
 };
 
+/** Milliseconds from `now` until the next local midnight. */
+export const msUntilNextLocalDay = (now: Date): number =>
+  new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() -
+  now.getTime();
+
 const hasDictation = (days: Record<string, DictationDay>, key: string) =>
   (days[key]?.dictations ?? 0) > 0;
 
